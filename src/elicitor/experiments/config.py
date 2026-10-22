@@ -8,23 +8,37 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-PHRASER = "tpl"  # only templates until M2
-
 _KEYS = {
     "name", "domain", "data_dir", "split", "seed", "replicates", "budgets", "tau",
-    "selectors", "updaters", "simulator", "updater",
+    "selectors", "updaters", "phrasers", "extra_arms", "simulator", "updater", "llm",
 }  # fmt: skip
+_ARM_PARTS = ("sel", "upd", "phr")
 
 
 @dataclass(frozen=True)
 class Arm:
     selector: str
     updater: str
-    phraser: str = PHRASER
+    phraser: str = "tpl"
 
     @property
     def name(self) -> str:
         return f"sel={self.selector},upd={self.updater},phr={self.phraser}"
+
+    @property
+    def uses_llm(self) -> bool:
+        return self.updater == "llm" or self.phraser == "llm"
+
+    @classmethod
+    def parse(cls, name: str) -> Arm:
+        """Inverse of `name`: "sel=eig,upd=llm,phr=tpl" -> Arm("eig", "llm", "tpl")."""
+        try:
+            parts = dict(item.split("=", 1) for item in name.split(","))
+        except ValueError:
+            raise ValueError(f"bad arm name {name!r}") from None
+        if set(parts) != set(_ARM_PARTS):
+            raise ValueError(f"arm {name!r} needs exactly the parts {_ARM_PARTS}")
+        return cls(parts["sel"], parts["upd"], parts["phr"])
 
 
 @dataclass(frozen=True)
@@ -39,12 +53,22 @@ class ExperimentConfig:
     tau: float
     selectors: tuple[str, ...]
     updaters: tuple[str, ...]
+    phrasers: tuple[str, ...] = ("tpl",)
+    extra_arms: tuple[Arm, ...] = ()
     simulator: dict[str, Any] = field(default_factory=lambda: {"kind": "oracle"})
     updater_params: dict[str, dict[str, Any]] = field(default_factory=dict)
+    llm: dict[str, Any] = field(default_factory=dict)
 
     @property
     def arms(self) -> list[Arm]:
-        return [Arm(s, u) for s, u in itertools.product(self.selectors, self.updaters)]
+        """The selector x updater x phraser grid, then the extra arms not already in it."""
+        grid = itertools.product(self.selectors, self.updaters, self.phrasers)
+        arms = [Arm(s, u, p) for s, u, p in grid]
+        return arms + [a for a in self.extra_arms if a not in arms]
+
+    @property
+    def needs_llm(self) -> bool:
+        return self.simulator.get("kind") == "llm" or any(a.uses_llm for a in self.arms)
 
     @property
     def schema_path(self) -> Path:
@@ -53,6 +77,10 @@ class ExperimentConfig:
     @property
     def personas_path(self) -> Path:
         return self.data_dir / self.domain / "personas.jsonl"
+
+    @property
+    def prompts_dir(self) -> Path:
+        return self.data_dir / self.domain / "prompts"
 
 
 def load_config(path: str | Path) -> ExperimentConfig:
@@ -77,6 +105,9 @@ def load_config(path: str | Path) -> ExperimentConfig:
         tau=float(raw.get("tau", 0.9)),
         selectors=tuple(raw["selectors"]),
         updaters=tuple(raw["updaters"]),
+        phrasers=tuple(raw.get("phrasers", ["tpl"])),
+        extra_arms=tuple(Arm.parse(name) for name in raw.get("extra_arms", [])),
         simulator=dict(raw.get("simulator", {"kind": "oracle"})),
         updater_params={k: dict(v) for k, v in raw.get("updater", {}).items()},
+        llm=dict(raw.get("llm", {})),
     )

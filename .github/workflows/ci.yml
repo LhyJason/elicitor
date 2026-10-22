@@ -22,3 +22,4 @@ jobs:
       - run: pytest
       - run: elicitor make-data data/travel --check
       - run: elicitor run experiments/m1_no_llm.toml
+      - run: elicitor run experiments/m2_mock.toml

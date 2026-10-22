@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 import random
-from typing import Any, Protocol
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, Protocol
 
 from elicitor.personas import Persona
 from elicitor.questions import Question
 from elicitor.schema import Schema
+
+if TYPE_CHECKING:
+    from elicitor.llm import LLMClient
 
 
 class Simulator(Protocol):
@@ -18,10 +22,21 @@ class Simulator(Protocol):
     ) -> str: ...
 
 
-def make_simulator(schema: Schema, kind: str, **params: Any) -> Simulator:
+def make_simulator(
+    schema: Schema,
+    kind: str,
+    client: LLMClient | None = None,
+    prompts_dir: str | Path | None = None,
+    **params: Any,
+) -> Simulator:
     from elicitor.simulator.oracle import OracleSimulator
 
-    registry: dict[str, type] = {"oracle": OracleSimulator}
-    if kind not in registry:
-        raise ValueError(f"unknown simulator {kind!r}; choose from {sorted(registry)}")
-    return registry[kind](schema, **params)
+    if kind == "oracle":
+        return OracleSimulator(schema, **params)
+    if kind == "llm":
+        from elicitor.simulator.llm import LLMSimulator, load_styles
+
+        if client is None or prompts_dir is None:
+            raise ValueError("the llm simulator needs an LLM client and a prompts folder")
+        return LLMSimulator(schema, client, load_styles(Path(prompts_dir) / "styles.toml"))
+    raise ValueError(f"unknown simulator {kind!r}; choose from ['llm', 'oracle']")

@@ -1,0 +1,24 @@
+# M2 mock suite: every LLM code path on the deterministic mock backend (SPEC §14, §17).
+# Runs in CI; no server needed.  elicitor run experiments/m2_mock.toml
+
+name = "m2_mock"
+domain = "travel"
+data_dir = "../data"
+split = "eval"
+seed = 2000
+replicates = 2
+budgets = [3, 5]
+tau = 0.9
+selectors = ["fixed", "random", "max_entropy"]
+updaters = ["rule", "llm"]
+phrasers = ["tpl"]
+extra_arms = ["sel=max_entropy,upd=llm,phr=llm"]
+
+[simulator]
+kind = "llm"
+
+[updater.rule]
+rho = 0.8
+
+[llm]
+provider = "mock"

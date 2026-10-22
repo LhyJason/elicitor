@@ -9,9 +9,9 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from elicitor.belief import Belief
-from elicitor.metrics import belief_metrics
+from elicitor.metrics import belief_metrics, leaked_slots
 from elicitor.personas import Persona
-from elicitor.phrasing import TemplatePhraser
+from elicitor.phrasing import Phraser
 from elicitor.questions import Question
 from elicitor.rng import derive_rng
 from elicitor.schema import Schema
@@ -33,6 +33,7 @@ class Turn:
     parsed: dict[str, Any]
     belief: Belief
     metrics: dict[str, float]
+    leaks: tuple[str, ...] = ()  # unasked slots the answer mentions (SPEC §9)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -41,6 +42,7 @@ class Turn:
             "text": self.text,
             "answer": self.answer,
             "parsed": self.parsed,
+            "leaks": list(self.leaks),
             "metrics": {k: round(v, 6) for k, v in self.metrics.items()},
             "belief": self.belief.to_dict(),
         }
@@ -82,7 +84,7 @@ def run_episode(
     selector: Selector,
     updater: Updater,
     simulator: Simulator,
-    phraser: TemplatePhraser,
+    phraser: Phraser,
     budget: int,
     tau: float,
     seed: int,
@@ -110,13 +112,22 @@ def run_episode(
         n = times_asked.get(question.slot, 0)
         times_asked[question.slot] = n + 1
         # Common random numbers: the same question gets the same noisy answer in every arm.
+        # The wording (with LLM phrasing) follows the same rule.
+        phrase_rng = derive_rng(seed, persona.id, "phrase", question.slot, n)
         answer_rng = derive_rng(seed, persona.id, "answer", question.slot, n)
-        text = phraser.render(question)
+        text = phraser.render(question, phrase_rng)
         answer = simulator.respond(question, text, persona, answer_rng)
-        belief, parsed = updater.update(belief, question, answer)
+        belief, parsed = updater.update(belief, question, text, answer)
         episode.turns.append(
             Turn(
-                index, question, text, answer, parsed, belief, belief_metrics(belief, persona.truth)
+                index=index,
+                question=question,
+                text=text,
+                answer=answer,
+                parsed=parsed,
+                belief=belief,
+                metrics=belief_metrics(belief, persona.truth),
+                leaks=tuple(leaked_slots(schema, question.slot, answer)),
             )
         )
     else:

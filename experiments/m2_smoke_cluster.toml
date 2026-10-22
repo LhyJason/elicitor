@@ -1,0 +1,32 @@
+# M2 smoke run as a one-GPU cluster job (SPEC §15, §17): dev personas, one replicate.
+# Submit from the repo root:  cluster/submit.sh cluster/smoke.sbatch
+# Done when llm_stats.json shows 0 transport errors and 0 failed calls for every role.
+
+name = "m2_smoke_cluster"
+domain = "travel"
+data_dir = "../data"
+split = "dev"
+seed = 3000
+replicates = 1
+budgets = [5]
+tau = 0.9
+selectors = ["max_entropy"]
+updaters = ["rule", "llm"]
+phrasers = ["tpl"]
+extra_arms = ["sel=random,upd=llm,phr=llm"]
+
+[simulator]
+kind = "llm"
+
+[updater.rule]
+rho = 0.8
+
+[llm]
+provider = "ollama"
+base_url = "http://127.0.0.1:11434"  # replaced by ELICITOR_BASE_URL in the job
+num_ctx = 4096
+timeout = 300
+
+[llm.models]
+agent = "qwen3:32b"
+user = "qwen3:32b"

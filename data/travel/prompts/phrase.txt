@@ -1,0 +1,13 @@
+### system
+You are a friendly travel agent chatting with a client. You turn scripted questions into
+natural conversation. Reply with JSON only.
+
+### user
+Scripted question: "$template"
+It asks about: $slot_description
+
+Rewrite it as one natural, conversational question of at most 25 words.
+- Ask about this topic only.
+- Do not list or suggest possible answers.
+- Keep the meaning.
+Return {"question": "..."}.

@@ -1,14 +1,15 @@
 """Synthetic users: ground truth for every slot plus an answer style (SPEC §4, Decision Q4).
 
 Ground truth is stratified: within each slot every value is used about equally often, and slots
-are shuffled independently. Backstories are written once by an LLM in M2; until then they are
-empty.
+are shuffled independently. Backstories live in a separate `backstories.jsonl` beside the persona
+file (written once by an LLM in M5) and are merged at load time, so the persona file itself stays
+reproducible from the schema alone.
 """
 
 from __future__ import annotations
 
 import random
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 from elicitor.jsonl import read_jsonl, write_jsonl
@@ -17,6 +18,7 @@ from elicitor.schema import Schema
 STYLES = ("direct", "vague", "rambling", "indifferent")
 DEV = "dev"
 EVAL = "eval"
+BACKSTORIES = "backstories.jsonl"
 
 
 @dataclass(frozen=True)
@@ -80,7 +82,13 @@ def generate_personas(schema: Schema, n_dev: int, n_eval: int, seed: int) -> lis
 
 
 def load_personas(path: str | Path, split: str | None = None) -> list[Persona]:
+    """Personas of one split (or all), with backstories merged in when the file exists."""
+    path = Path(path)
     personas = [Persona.from_dict(row) for row in read_jsonl(path)]
+    backstories_path = path.with_name(BACKSTORIES)
+    if backstories_path.exists():
+        stories = {row["id"]: row["backstory"] for row in read_jsonl(backstories_path)}
+        personas = [replace(p, backstory=stories.get(p.id, p.backstory)) for p in personas]
     return [p for p in personas if split is None or p.split == split]
 
 

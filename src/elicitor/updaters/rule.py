@@ -83,7 +83,7 @@ class RuleUpdater:
         return (1 - self.rho) / (n_values * self.rho + 1 - self.rho)
 
     def update(
-        self, belief: Belief, question: Question, answer: str
+        self, belief: Belief, question: Question, text: str, answer: str
     ) -> tuple[Belief, dict[str, Any]]:
         slot = belief.schema.slot(question.slot)
         positive, negated = find_mentions(slot, answer)

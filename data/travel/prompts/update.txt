@@ -1,0 +1,19 @@
+### system
+You read a traveller's answer to a travel agent and judge what it says about one of their
+preferences. You only rate the answer; you never invent facts. Reply with JSON only.
+
+### user
+Preference: $slot_description
+Possible values:
+$values
+
+The agent asked: "$question"
+The traveller answered: "$answer"
+
+For every value above, give an integer score from 0 to 10: how well the answer fits a traveller
+whose true preference is that value.
+- 10: the answer states or clearly implies this value.
+- 5: the answer gives no information about this value.
+- 0: the answer clearly rules this value out.
+If the answer says nothing about this preference, give every value 5.$no_preference_note
+In "evidence", quote the few words of the answer your scores rest on (empty if none).

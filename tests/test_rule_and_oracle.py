@@ -17,7 +17,7 @@ def test_every_oracle_answer_is_understood(schema):
         for value in slot.value_names:
             answer = render_answer(slot, value)
             assert find_mentions(slot, answer) == ([value], []), answer
-            belief, record = updater.update(Belief.prior(schema), Question(slot.name), answer)
+            belief, record = updater.update(Belief.prior(schema), Question(slot.name), "", answer)
             assert record["matched"]
             assert belief.map_value(slot.name) == value
 
@@ -27,7 +27,7 @@ def test_rule_likelihood_matches_answer_model(schema):
     rho = 0.7
     slot = schema.slot("setting")
     n = len(slot.values)
-    belief, _ = RuleUpdater(rho).update(Belief.prior(schema), Question("setting"), "The beach!")
+    belief, _ = RuleUpdater(rho).update(Belief.prior(schema), Question("setting"), "", "The beach!")
     p_named_if_true = rho + (1 - rho) / n
     p_named_if_other = (1 - rho) / n
     expected = p_named_if_true / (p_named_if_true + (n - 1) * p_named_if_other)
@@ -38,7 +38,9 @@ def test_negation_counts_against(schema):
     slot = schema.slot("setting")
     assert find_mentions(slot, "Not the beach, I'd rather see a city.") == (["city"], ["beach"])
     assert find_mentions(slot, "No, mountains please") == (["mountains"], [])
-    belief, _ = RuleUpdater().update(Belief.prior(schema), Question("setting"), "Avoid the coast.")
+    belief, _ = RuleUpdater().update(
+        Belief.prior(schema), Question("setting"), "", "Avoid the coast."
+    )
     assert belief.prob("setting", "beach") < min(
         belief.prob("setting", v) for v in slot.value_names if v != "beach"
     )
@@ -61,14 +63,14 @@ def test_numbers_fill_ordinal_bins(schema):
         ("trip_length", "12", "long"),
     ]
     for slot, answer, value in cases:
-        belief, record = updater.update(prior, Question(slot), answer)
+        belief, record = updater.update(prior, Question(slot), "", answer)
         assert belief.map_value(slot) == value, answer
         assert "number" in record
 
 
 def test_unmatched_answer_leaves_belief_unchanged(schema):
     prior = Belief.prior(schema)
-    belief, record = RuleUpdater().update(prior, Question("food"), "Hmm, hard to say.")
+    belief, record = RuleUpdater().update(prior, Question("food"), "", "Hmm, hard to say.")
     assert belief is prior and not record["matched"]
 
 
