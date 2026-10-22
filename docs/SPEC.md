@@ -89,6 +89,12 @@ prior = "uniform"               # or explicit weights
 description = "what this slot means, used in prompts"
 ```
 
+*M3 additions.* An ordinal slot may set `threshold_question`, the template of its yes/no question
+"below this bin edge?" with an `{edge}` placeholder (§8), and `constraint`, how a catalog item
+can break it (§10): `"at_most"` (the item must not lie in a higher bin than the user's, e.g. the
+budget) or `"exact"` (the item must lie in the user's bin, e.g. trip length; the default).
+Only ordinal slots are constraints.
+
 ## 4. Personas
 
 A persona = ground-truth value for every slot + an answer style + a short backstory.
@@ -136,6 +142,18 @@ what was parsed. The question text is passed because with LLM phrasing (§8) the
 > skips the call. *Unasked slots:* scored only if the leakage rate (§9) measured with the LLM
 > simulator on the dev personas exceeds 10 % of answers; otherwise v1 scores the asked slot only.
 > *Settled in M2 (dev smoke 3, §9): 3.9 % hand-checked, 8.9 % by keyword, so the asked slot only.*
+>
+> *Choice and yes/no questions (M3).* The rule updater first reads the answer as one or more
+> outcomes of the question's answer model (§7): for a choice question, the offered values it
+> names, else "other" when it names another value, a no-preference phrase or a "none of them"
+> phrase; for a yes/no question, the first yes or no phrase, else "yes" when it names a value in
+> the question's set and "no" when it names one outside it. The likelihood then has the same form
+> as for open questions with the outcomes in place of the values: a value whose noise-free outcome
+> was named keeps weight 1, every other value gets
+> $\varepsilon = (1-\rho)/(m\rho + 1 - \rho)$ with $m$ the number of outcomes, and a negated
+> outcome multiplies by $\varepsilon$. For open questions this is exactly the M1 updater. ρ can
+> differ by question type. The LLM updater is unchanged: it already sees the question as asked,
+> and its prompt for open questions stays byte-identical to M2.
 
 ## 7. Questions and selection policies
 
@@ -158,6 +176,41 @@ correlated (Q5 B). The experiment must include at least one of these, or the EIG
 > extra arm* (`sel=eig_mc`): S = 3 sampled answers per candidate question, run only at K = 5 with
 > the LLM updater. B costs about S × (number of candidate questions) × 2 LLM calls per turn, which
 > is why it is kept to one setting (see §1, size limits).
+>
+> *A in detail (M3).* Each question $q$ on slot $s$ has a set of outcomes $\Omega_q$ and a
+> noise-free answer $f_q(v) \in \Omega_q$ for every value $v$:
+>
+> | type | outcomes $\Omega_q$ | $f_q(v)$ |
+> |---|---|---|
+> | open | the slot's values | $v$ |
+> | choice, offering a set $O$ of 2 or 3 concrete values | $O \cup \{\text{other}\}$ | $v$ if $v \in O$, else other |
+> | yes/no on a set $S$ | {yes, no} | yes if $v \in S$, else no |
+>
+> Answer model: $P(\omega \mid v) = \rho_q [\omega = f_q(v)] + (1-\rho_q)/|\Omega_q|$, i.e. the
+> noise-free outcome with probability $\rho_q$, else a uniformly random outcome. ρ is set per
+> question type (`open`, `choice`, `yesno`). For open questions this is the M1 model. Then
+> $\mathrm{EIG}(q) = H(A) - H(A \mid V)$ with $P(A = \omega) = \sum_v b_s(v) P(\omega \mid v)$,
+> which gives EIG = $H(b_s)$ for a noise-free open question and EIG ≤ 1 bit for a yes/no one.
+>
+> - *Candidates per slot:* the open question; a choice between every pair and every triple of
+>   concrete values (never `no_preference`); yes/no on each single concrete value of a categorical
+>   slot, and on each "below edge $i$" threshold (the first $i$ bins) of an ordinal slot. 105
+>   questions for the travel schema.
+> - *Selector `eig`:* the candidate with the largest EIG over all slots; ties (within $10^{-12}$)
+>   go to schema order, then open, choice, yes/no, then generation order. It never asks the same
+>   question twice, but it may ask another question on a slot already asked (a yes/no check after
+>   a noisy open answer), which only pays off because ρ < 1. `eig` takes `kinds` (default all
+>   three) and `rho` from the experiment file's `[selector.eig]` table.
+> - *Selector `eig_open`:* `eig` restricted to open questions, a diagnostic for H2: against
+>   `max_entropy` it isolates what the noise model changes, against `eig` what the question types
+>   add. Whether it enters the main grid is decided with the hypotheses (Q13).
+> - *Why the arms differ.* With one ρ for all types, open questions nearly always win and `eig`
+>   is close to `max_entropy`. Closed questions are easier to answer reliably, so the M3 suites use
+>   $\rho$ = 0.7 / 0.8 / 0.9 for open / choice / yes/no, for both the oracle and the agent's model.
+>   For the LLM simulator, ρ per type is estimated on the dev personas in M5 (how often one answer
+>   alone puts the MAP on the true outcome) and frozen before the full run.
+> - *`eig_mc` (M5):* scoring all 105 candidates would cost about 600 LLM calls per turn, so it
+>   scores a shortlist of the top candidates by analytic EIG; the shortlist size is set in M5.
 
 > **Decision Q8 — when to stop asking.**
 > *Chosen:* budget K (sweep K ∈ {3, 5, 8}, fewer than the number of slots so that ordering
@@ -175,6 +228,14 @@ correlated (Q5 B). The experiment must include at least one of these, or the EIG
 > suggests no answer.
 > Temperature 0.7, seeded per (replicate, persona, slot, ask count), so arms that ask the same
 > question see the same wording. A reply that fails validation falls back to the template.
+>
+> *Templates for choice and yes/no (M3).* Choice: "Would you prefer A or B?" / "A, B, or C?",
+> with semicolons between options when a label contains a comma. Yes/no on a value: "Would
+> <label> suit you?". Yes/no on an ordinal threshold: the slot's `threshold_question` with the bin
+> edge filled in (§3). With LLM phrasing, the prompt's rule "do not list or suggest possible
+> answers" applies to open questions only; a choice question must keep exactly its options, a
+> yes/no question must stay a yes/no question about its option. The open-question prompt stays
+> byte-identical to M2.
 
 ## 9. User simulator
 
@@ -220,6 +281,12 @@ Answers a question in character, using only the persona; must not volunteer the 
 > none answers the wrong topic. Hand-checked rate 7 / 180 = 3.9 %. **Settled:** below 10 %, so
 > the v1 LLM updater scores the asked slot only (§6). Leakage is measured again in M5 with the
 > real simulator model and reported with the results.
+>
+> *Choice and yes/no questions (M3).* The oracle draws an outcome from the answer model of §7
+> with its own ρ per type and says it plainly ("I'd pick the mountains.", "None of those,
+> really.", "Yes, that would suit me.", "No, not really."). The mock simulator does the same with
+> ρ = 0.8 and its style wording. The LLM simulator's prompt is unchanged: the question text
+> carries the type.
 
 ## 10. Recommendation and evaluation target
 
@@ -231,6 +298,15 @@ Answers a question in character, using only the persona; must not volunteer the 
 > *Chosen B as the primary metric* (objective, cheap, no judge bias) and A as a secondary,
 > human-readable output with the judge run on a sample.
 > Judge failures are counted as failures, never replaced by a default score.
+>
+> *B in detail (M3).* True utility of item $i$ for a user with true values $t$: the mean over
+> slots of a match score, $u(i, t) = \frac{1}{|S|}\sum_s m_s(i_s, t_s) \in [0, 1]$. Categorical:
+> $m_s = 1$ when $i_s = t_s$ or $t_s$ = `no_preference`, else 0. Ordinal with $n$ bins:
+> $m_s = 1 - |i_s - t_s|/(n-1)$ (partial credit by bin distance). The recommender ranks the catalog
+> by expected utility under the factorized belief,
+> $\mathrm{EU}(i) = \frac{1}{|S|}\sum_s \sum_v b_s(v)\, m_s(i_s, v)$; ties keep catalog order.
+> A belief that is a point mass on the truth therefore ranks a best item first. Hard constraints
+> are not used for ranking; how often the top item breaks one is reported (§12).
 
 ## 11. Episode loop
 
@@ -259,7 +335,11 @@ answer (common random numbers), which tightens the paired comparisons in §13.
 - Belief, per turn: mean posterior mass on the true value; MAP accuracy over slots; log loss;
   mean entropy.
 - Efficiency: turns until confident; area under the accuracy-vs-turn curve.
-- Outcome: regret, hit@k, constraint violations (Q10).
+- Outcome: regret, hit@k, constraint violations (Q10). Computed after every turn, like the
+  belief metrics. Regret $= \max_i u(i, t) - u(\text{top item}, t)$. hit@k (k = 1, 5, 10) = 1 when
+  the top k items contain at least one item of maximal true utility. Violations = number of
+  constraint slots (§3) the top item breaks: `at_most` when its bin is above the user's, `exact`
+  when its bin differs.
 - Operations, per role: calls, cache hits, parse failures, errors, latency, tokens.
 
 ## 13. Experiments
@@ -339,7 +419,8 @@ One client, providers `ollama` (native API), `openai_compatible` (any local serv
 
 ```text
 src/<pkg>/
-  schema.py  personas.py  belief.py  questions.py  catalog.py  episode.py  metrics.py
+  schema.py  personas.py  belief.py  questions.py  answer_model.py  catalog.py  episode.py
+  metrics.py
   updaters/   (rule.py, llm.py)
   selectors/  (fixed.py, random.py, entropy.py, eig.py)
   phrasing.py  simulator/ (oracle.py, llm.py)  recommender.py
@@ -373,7 +454,7 @@ results_summary/ committed tables
 | M0 | repo, pyproject, CI, empty package | CI green |
 | M1 | schema, personas, belief, rule updater, fixed/random/entropy selectors, oracle simulator, catalog, episode loop; also template phrasing, belief metrics and a minimal `run` (no resume) so the suite can run | full suite runs with no LLM; belief and entropy unit tests pass |
 | M2 | LLM layer (client, cache, mock, Ollama), LLM updater, phrasing, LLM simulator | mock suite in CI; smoke run on a real model (dev personas) with 0 transport errors and 0 failed calls; parse failures and leakage reported. Changed 10-22: Ollama is not installed on the development laptop, so the M2 smoke runs as a one-GPU cluster job with qwen3:32b for both model groups (the agent model of Q14, already on the cluster; llama3.3:70b is first tested in M5). `experiments/m2_smoke_ollama.toml` (qwen3:4b) stays as the local option. **Done 10-22:** three smoke jobs, all with 0 errors, 0 parse failures and 0 failed calls; leakage settled after two prompt and text fixes (§9) |
-| M3 | EIG selector + question types, recommender, metrics | EIG unit tests (EIG = H for noise-free open questions; EIG ≤ 1 bit for yes/no) |
+| M3 | EIG selector + question types (templates, oracle, rule and LLM updaters, mock), recommender, outcome metrics | EIG unit tests (EIG = H for noise-free open questions; EIG ≤ 1 bit for yes/no); the m1 and m2 suites still run; an `eig` arm runs in CI (oracle suite `m3_eig` and mock suite `m3_mock`) |
 | M4 | runner, run-health, analysis, figures | analysis runs on mock output and refuses to write committed tables from it |
 | M5 | cluster jobs (≤ 4 A40), smoke run to measure the call rate, full run | all cells finished within the §1 time limit; error rate 0; parse failures < 1 % per role |
 | M6 | README results, demo, release | fresh-clone test passes on a clean venv |
