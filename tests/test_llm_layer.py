@@ -20,6 +20,8 @@ from elicitor.llm.providers import (
 )
 from elicitor.llm.roles import ROLE_NAMES, PhraseReply, build_roles, update_model, value_lines
 from elicitor.personas import load_personas
+from elicitor.phrasing import KIND_RULES
+from elicitor.questions import OPEN, Question
 from tests.conftest import TRAVEL
 
 PROMPTS = TRAVEL / "prompts"
@@ -39,6 +41,7 @@ def update_context(schema, answer="Somewhere by the sea, please."):
     slot = schema.slot("setting")
     return {
         "slot": slot,
+        "q": Question(slot.name),
         "slot_description": slot.description,
         "values": value_lines(slot),
         "question": slot.question,
@@ -136,9 +139,15 @@ def test_prompts_render_without_leftover_placeholders(roles, schema, persona):
     slot = schema.slot("pace")
     contexts = {
         "update": update_context(schema),
-        "phrase": {"slot": slot, "slot_description": slot.description, "template": slot.question},
+        "phrase": {
+            "slot": slot,
+            "slot_description": slot.description,
+            "template": slot.question,
+            "kind_rule": KIND_RULES[OPEN],
+        },
         "simulate": {
             "slot": slot,
+            "q": Question(slot.name),
             "persona": persona,
             "profile": profile_lines(schema, persona),
             "backstory": "",
@@ -330,6 +339,7 @@ def test_mock_provider_is_deterministic(roles, schema, persona):
     slot = schema.slot("climate")
     ctx = {
         "slot": slot,
+        "q": Question(slot.name),
         "persona": persona,
         "profile": profile_lines(schema, persona),
         "backstory": "",

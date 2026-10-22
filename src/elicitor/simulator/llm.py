@@ -42,6 +42,7 @@ class LLMSimulator:
         slot = self.schema.slot(question.slot)
         context = {
             "slot": slot,
+            "q": question,  # for the mock only; the prompt sees the question as asked
             "topic": slot.description.rstrip("."),
             "persona": persona,
             "profile": profile_lines(self.schema, persona),

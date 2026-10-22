@@ -2,7 +2,9 @@
 #
 # Categorical slots get a `no_preference` value appended automatically; its label and keywords
 # are shared and defined once below. Ordinal slots are binned numeric constraints: `edges` are the
-# bin boundaries (a value x falls in bin i when edges[i-1] <= x < edges[i]).
+# bin boundaries (a value x falls in bin i when edges[i-1] <= x < edges[i]). `constraint` says how
+# a catalog item breaks the slot (SPEC §10) and `threshold_question` is the yes/no question
+# "below this edge?", with the edge in place of {edge} (SPEC §8).
 # Keywords are matched case-insensitively as whole words or phrases by the rule updater.
 
 domain = "travel"
@@ -102,6 +104,8 @@ description = "Total spending per day, in US dollars, excluding flights."
 question = "Roughly how much would you like to spend per day, not counting flights?"
 unit = "USD per day"
 edges = [100, 200, 350]
+constraint = "at_most"
+threshold_question = "Would you like to keep it under ${edge} a day?"
 values = [
     { name = "low", label = "under $100 a day", keywords = ["under $100", "under 100", "less than $100", "shoestring", "tight budget", "cheap"] },
     { name = "mid", label = "$100 to $200 a day", keywords = ["$100 to $200", "100 to 200", "mid-range", "moderate budget"] },
@@ -115,6 +119,8 @@ description = "Number of days at the destination."
 question = "How many days would you like the trip to last?"
 unit = "days"
 edges = [4, 7, 10]
+constraint = "exact"
+threshold_question = "Would you like the trip to be shorter than {edge} days?"
 values = [
     { name = "weekend", label = "a long weekend of 2 or 3 days", keywords = ["weekend", "long weekend", "couple of days", "two days", "three days"] },
     { name = "short", label = "4 to 6 days", keywords = ["4 to 6 days", "four days", "five days", "six days", "few days"] },

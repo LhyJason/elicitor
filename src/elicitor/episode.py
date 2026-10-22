@@ -1,6 +1,7 @@
 """One dialogue between the agent and a simulated user (SPEC §11).
 
-Recommendation and outcome scoring are added in M3; an M1 episode ends with the final belief.
+With a recommender, the catalog is ranked after every turn (and before the first) and the outcome
+metrics are recorded beside the belief metrics; the episode keeps the final top items.
 """
 
 from __future__ import annotations
@@ -9,10 +10,11 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from elicitor.belief import Belief
-from elicitor.metrics import belief_metrics, leaked_slots
+from elicitor.metrics import HIT_KS, belief_metrics, leaked_slots, outcome_metrics
 from elicitor.personas import Persona
 from elicitor.phrasing import Phraser
 from elicitor.questions import Question
+from elicitor.recommender import Recommender
 from elicitor.rng import derive_rng
 from elicitor.schema import Schema
 from elicitor.selectors import Selector
@@ -57,6 +59,7 @@ class Episode:
     initial_metrics: dict[str, float]
     turns: list[Turn] = field(default_factory=list)
     stop_reason: str = ""
+    recommended: list[str] = field(default_factory=list)  # top item ids after the last turn
 
     @property
     def final_metrics(self) -> dict[str, float]:
@@ -72,6 +75,7 @@ class Episode:
             "n_turns": len(self.turns),
             "initial_metrics": {k: round(v, 6) for k, v in self.initial_metrics.items()},
             "final_metrics": {k: round(v, 6) for k, v in self.final_metrics.items()},
+            "recommended": self.recommended,
             "turns": [t.to_dict() for t in self.turns],
         }
 
@@ -89,8 +93,19 @@ def run_episode(
     tau: float,
     seed: int,
     replicate: int = 0,
+    recommender: Recommender | None = None,
 ) -> Episode:
     """`seed` is the replicate seed; all randomness is derived from it (SPEC §11)."""
+    ranking: list[int] = []
+
+    def metrics(belief: Belief) -> dict[str, float]:
+        nonlocal ranking
+        out = belief_metrics(belief, persona.truth)
+        if recommender is not None:
+            ranking = recommender.rank(belief)
+            out.update(outcome_metrics(recommender, ranking, persona.truth))
+        return out
+
     selector_rng = derive_rng(seed, persona.id, arm, "selector")
     belief = Belief.prior(schema)
     episode = Episode(
@@ -98,7 +113,7 @@ def run_episode(
         arm=arm,
         replicate=replicate,
         budget=budget,
-        initial_metrics=belief_metrics(belief, persona.truth),
+        initial_metrics=metrics(belief),
     )
     times_asked: dict[str, int] = {}
     for index in range(1, budget + 1):
@@ -126,10 +141,12 @@ def run_episode(
                 answer=answer,
                 parsed=parsed,
                 belief=belief,
-                metrics=belief_metrics(belief, persona.truth),
+                metrics=metrics(belief),
                 leaks=tuple(leaked_slots(schema, question.slot, answer)),
             )
         )
     else:
         episode.stop_reason = BUDGET
+    if recommender is not None:
+        episode.recommended = [recommender.catalog[i].id for i in ranking[: max(HIT_KS)]]
     return episode

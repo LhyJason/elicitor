@@ -15,12 +15,14 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from elicitor.catalog import load_catalog
 from elicitor.episode import CONFIDENT, Episode, run_episode
 from elicitor.experiments.config import ExperimentConfig
 from elicitor.jsonl import write_jsonl
-from elicitor.metrics import BELIEF_METRICS
+from elicitor.metrics import BELIEF_METRICS, OUTCOME_METRICS
 from elicitor.personas import Persona, load_personas
 from elicitor.phrasing import make_phraser
+from elicitor.recommender import Recommender
 from elicitor.schema import Schema, load_schema
 from elicitor.selectors import make_selector
 from elicitor.simulator import make_simulator
@@ -30,7 +32,8 @@ if TYPE_CHECKING:
     from elicitor.llm import LLMClient
 
 SUMMARY_FIELDS = (
-    "arm", "budget", "episodes", *BELIEF_METRICS, "turns", "confident_share", "leak_rate",
+    "arm", "budget", "episodes", *BELIEF_METRICS, *OUTCOME_METRICS, "turns", "confident_share",
+    "leak_rate",
 )  # fmt: skip
 
 
@@ -86,9 +89,10 @@ def _run_all(
         prompts_dir=config.prompts_dir,
         **sim_params,
     )
+    recommender = Recommender(schema, load_catalog(config.catalog_path))
     episodes: list[Episode] = []
     for arm in config.arms:
-        selector = make_selector(arm.selector)
+        selector = make_selector(arm.selector, **config.selector_params.get(arm.selector, {}))
         params = config.updater_params.get(arm.updater, {})
         updater = make_updater(arm.updater, client=client, **params)
         phraser = make_phraser(arm.phraser, schema, client)
@@ -108,6 +112,7 @@ def _run_all(
                             tau=config.tau,
                             seed=config.seed + replicate,
                             replicate=replicate,
+                            recommender=recommender,
                         )
                     )
             if progress:
@@ -127,7 +132,7 @@ def summarize(episodes: list[Episode]) -> list[dict[str, Any]]:
     for (arm, budget), group in groups.items():
         n = len(group)
         row: dict[str, Any] = {"arm": arm, "budget": budget, "episodes": n}
-        for metric in BELIEF_METRICS:
+        for metric in (*BELIEF_METRICS, *OUTCOME_METRICS):
             row[metric] = round(sum(e.final_metrics[metric] for e in group) / n, 4)
         row["turns"] = round(sum(len(e.turns) for e in group) / n, 3)
         row["confident_share"] = round(sum(e.stop_reason == CONFIDENT for e in group) / n, 3)

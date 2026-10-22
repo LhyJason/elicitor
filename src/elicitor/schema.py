@@ -10,6 +10,8 @@ from typing import Any
 NO_PREFERENCE = "no_preference"
 CATEGORICAL = "categorical"
 ORDINAL = "ordinal"
+AT_MOST = "at_most"  # constraint: the item's bin must not be above the user's (e.g. budget)
+EXACT = "exact"  # constraint: the item's bin must be the user's (e.g. trip length)
 
 
 @dataclass(frozen=True)
@@ -29,6 +31,8 @@ class Slot:
     prior: tuple[float, ...]
     edges: tuple[float, ...] = ()
     unit: str = ""
+    threshold_question: str = ""  # ordinal only: yes/no template with an {edge} placeholder
+    constraint: str = ""  # ordinal only: AT_MOST or EXACT (SPEC §10)
 
     @property
     def value_names(self) -> tuple[str, ...]:
@@ -103,10 +107,16 @@ def _parse_slot(name: str, body: dict[str, Any], no_pref: Value) -> Slot:
         raise ValueError(f"slot {name}: needs at least 3 values")
 
     edges: tuple[float, ...] = ()
+    constraint = ""
     if kind == ORDINAL:
         edges = tuple(float(e) for e in body["edges"])
         if len(edges) != len(values) - 1 or list(edges) != sorted(set(edges)):
             raise ValueError(f"slot {name}: need {len(values) - 1} strictly increasing edges")
+        constraint = body.get("constraint", EXACT)
+        if constraint not in (AT_MOST, EXACT):
+            raise ValueError(f"slot {name}: unknown constraint {constraint!r}")
+    elif "constraint" in body or "threshold_question" in body:
+        raise ValueError(f"slot {name}: only ordinal slots take a constraint or threshold question")
 
     return Slot(
         name=name,
@@ -117,6 +127,8 @@ def _parse_slot(name: str, body: dict[str, Any], no_pref: Value) -> Slot:
         prior=_parse_prior(name, body.get("prior", "uniform"), len(values)),
         edges=edges,
         unit=body.get("unit", ""),
+        threshold_question=body.get("threshold_question", ""),
+        constraint=constraint,
     )
 
 

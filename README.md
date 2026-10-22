@@ -12,7 +12,10 @@ factorized belief, keyword updater, fixed / random / max-entropy question select
 simulated user and the episode loop). M2 adds the LLM layer: an Ollama client with a SQLite reply
 cache, structured outputs checked by pydantic, and a deterministic mock backend. On top of it sit
 an LLM belief updater (the LLM scores the answer; Bayes' rule stays in code), LLM question
-phrasing and an LLM simulated user. The design is in [docs/SPEC.md](docs/SPEC.md).
+phrasing and an LLM simulated user. M3 adds choice and yes/no questions, an analytic
+expected-information-gain selector over all question types, and a recommender that ranks a
+200-item catalog by expected utility, scored by regret, hit@k and constraint violations. The
+design is in [docs/SPEC.md](docs/SPEC.md).
 
 ## Quick start
 
@@ -20,10 +23,12 @@ phrasing and an LLM simulated user. The design is in [docs/SPEC.md](docs/SPEC.md
 pip install -e .
 elicitor run experiments/m1_no_llm.toml     # no LLM needed; writes results/m1_no_llm/
 elicitor run experiments/m2_mock.toml       # every LLM code path on the mock backend
+elicitor run experiments/m3_eig.toml        # EIG vs the baselines, rule-based user, no LLM
 ```
 
-The run prints mean belief metrics per arm and question budget: probability mass on the true
-value, MAP accuracy, log loss and entropy (bits), averaged over slots and episodes. Runs that use
+The run prints mean metrics per arm and question budget: belief metrics (probability mass on the
+true value, MAP accuracy, log loss and entropy in bits, averaged over slots) and outcome metrics
+for the top recommendation (regret, hit@1/5/10, constraint violations), averaged over episodes. Runs that use
 an LLM also print and save per-role call statistics (`llm_stats.json`).
 
 With [Ollama](https://ollama.com) running locally, `ollama pull qwen3:4b` and then

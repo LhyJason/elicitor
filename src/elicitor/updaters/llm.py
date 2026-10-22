@@ -47,6 +47,7 @@ class LLMUpdater:
             return belief, record
         context = {
             "slot": slot,
+            "q": question,  # for the mock only; the prompt sees the question as asked
             "slot_description": slot.description,
             "values": value_lines(slot),
             "question": text,

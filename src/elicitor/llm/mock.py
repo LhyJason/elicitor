@@ -13,10 +13,11 @@ from typing import Any
 
 from pydantic import BaseModel
 
+from elicitor.answer_model import AnswerModel
 from elicitor.llm.roles import PhraseReply, SimulateReply, update_model
-from elicitor.schema import ORDINAL
-from elicitor.simulator.oracle import render_answer
-from elicitor.updaters.rule import find_mentions, number_bin
+from elicitor.questions import noise_free_outcome
+from elicitor.simulator.oracle import render_outcome
+from elicitor.updaters.rule import parse_outcomes
 
 MOCK_RHO = 0.8  # how often the mock simulator names the true value
 
@@ -32,19 +33,18 @@ _STYLE_WRAP = {
 
 
 def mock_update(ctx: Mapping[str, Any], rng: random.Random) -> BaseModel:
-    """Keyword scores: named value 9, negated value 1, the rest 2 (or 5 when nothing matched)."""
+    """Keyword scores: a value whose outcome the answer gives 9, one it rules out 1, the rest 2
+    (or 5 when nothing matched). Outcomes are read as the rule updater reads them."""
     slot = ctx["slot"]
+    question = ctx["q"]
     answer = ctx["answer"]
-    positive, negated = find_mentions(slot, answer)
-    if not positive and not negated and slot.kind == ORDINAL:
-        found = number_bin(slot, answer)
-        if found is not None:
-            positive = [found[1]]
+    positive, negated, _ = parse_outcomes(slot, question, answer)
     scores = {}
     for value in slot.value_names:
-        if value in positive:
+        outcome = noise_free_outcome(question, value)
+        if outcome in positive:
             scores[value] = 9
-        elif value in negated:
+        elif outcome in negated:
             scores[value] = 1
         else:
             scores[value] = 2 if positive else 5
@@ -59,11 +59,10 @@ def mock_phrase(ctx: Mapping[str, Any], rng: random.Random) -> BaseModel:
 
 def mock_simulate(ctx: Mapping[str, Any], rng: random.Random) -> BaseModel:
     slot = ctx["slot"]
+    question = ctx["q"]
     persona = ctx["persona"]
-    value = persona.truth[slot.name]
-    if rng.random() >= MOCK_RHO:
-        value = rng.choice(slot.value_names)
-    answer = render_answer(slot, value)
+    outcome = AnswerModel(MOCK_RHO).sample(slot, question, persona.truth[slot.name], rng)
+    answer = render_outcome(slot, question, outcome)
     wrap = _STYLE_WRAP.get(persona.style, "{answer}")
     keep_case = answer.split()[0] in ("I", "I'd")
     answer_lc = answer if keep_case else answer[0].lower() + answer[1:]

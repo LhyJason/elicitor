@@ -23,3 +23,5 @@ jobs:
       - run: elicitor make-data data/travel --check
       - run: elicitor run experiments/m1_no_llm.toml
       - run: elicitor run experiments/m2_mock.toml
+      - run: elicitor run experiments/m3_eig.toml
+      - run: elicitor run experiments/m3_mock.toml

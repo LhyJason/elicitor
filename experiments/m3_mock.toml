@@ -1,0 +1,31 @@
+# M3 mock suite: the EIG selector through every LLM code path on the mock backend (SPEC §14, §17).
+# The mock simulator answers every question type with rho = 0.8. The agent's answer model rates
+# closed questions as more reliable, so EIG asks choice and yes/no questions and their LLM paths
+# (phrasing, simulated answers, scoring) all run; with one rho it would match max_entropy.
+# Runs in CI; no server needed.
+#   elicitor run experiments/m3_mock.toml
+
+name = "m3_mock"
+domain = "travel"
+data_dir = "../data"
+split = "eval"
+seed = 5000
+replicates = 2
+budgets = [3, 5]
+tau = 0.9
+selectors = ["max_entropy", "eig"]
+updaters = ["rule", "llm"]
+phrasers = ["tpl"]
+extra_arms = ["sel=eig,upd=llm,phr=llm"]
+
+[simulator]
+kind = "llm"
+
+[selector.eig]
+rho = { open = 0.7, choice = 0.8, yesno = 0.9 }
+
+[updater.rule]
+rho = { open = 0.7, choice = 0.8, yesno = 0.9 }
+
+[llm]
+provider = "mock"

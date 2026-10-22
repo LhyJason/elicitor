@@ -10,7 +10,7 @@ from typing import Any
 
 _KEYS = {
     "name", "domain", "data_dir", "split", "seed", "replicates", "budgets", "tau",
-    "selectors", "updaters", "phrasers", "extra_arms", "simulator", "updater", "llm",
+    "selectors", "updaters", "phrasers", "extra_arms", "simulator", "selector", "updater", "llm",
 }  # fmt: skip
 _ARM_PARTS = ("sel", "upd", "phr")
 
@@ -56,6 +56,7 @@ class ExperimentConfig:
     phrasers: tuple[str, ...] = ("tpl",)
     extra_arms: tuple[Arm, ...] = ()
     simulator: dict[str, Any] = field(default_factory=lambda: {"kind": "oracle"})
+    selector_params: dict[str, dict[str, Any]] = field(default_factory=dict)
     updater_params: dict[str, dict[str, Any]] = field(default_factory=dict)
     llm: dict[str, Any] = field(default_factory=dict)
 
@@ -77,6 +78,10 @@ class ExperimentConfig:
     @property
     def personas_path(self) -> Path:
         return self.data_dir / self.domain / "personas.jsonl"
+
+    @property
+    def catalog_path(self) -> Path:
+        return self.data_dir / self.domain / "catalog.jsonl"
 
     @property
     def prompts_dir(self) -> Path:
@@ -108,6 +113,7 @@ def load_config(path: str | Path) -> ExperimentConfig:
         phrasers=tuple(raw.get("phrasers", ["tpl"])),
         extra_arms=tuple(Arm.parse(name) for name in raw.get("extra_arms", [])),
         simulator=dict(raw.get("simulator", {"kind": "oracle"})),
+        selector_params={k: dict(v) for k, v in raw.get("selector", {}).items()},
         updater_params={k: dict(v) for k, v in raw.get("updater", {}).items()},
         llm=dict(raw.get("llm", {})),
     )

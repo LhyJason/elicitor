@@ -1,0 +1,28 @@
+# M3 oracle suite: the EIG selectors against the open-question baselines (SPEC §7, §17).
+# Closed questions are answered more reliably than open ones (rho per question type), and the
+# agent's answer model matches the oracle exactly. No LLM; runs in CI.
+#   elicitor run experiments/m3_eig.toml
+
+name = "m3_eig"
+domain = "travel"
+data_dir = "../data"
+split = "eval"
+seed = 4000
+replicates = 5
+budgets = [3, 5, 8]
+tau = 0.9
+selectors = ["fixed", "random", "max_entropy", "eig_open", "eig"]
+updaters = ["rule"]
+
+[simulator]
+kind = "oracle"
+rho = { open = 0.7, choice = 0.8, yesno = 0.9 }
+
+[selector.eig]
+rho = { open = 0.7, choice = 0.8, yesno = 0.9 }
+
+[selector.eig_open]
+rho = { open = 0.7, choice = 0.8, yesno = 0.9 }
+
+[updater.rule]
+rho = { open = 0.7, choice = 0.8, yesno = 0.9 }
