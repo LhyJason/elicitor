@@ -15,14 +15,14 @@ The code is written from this file. A changed decision is recorded here before t
 | Q4 | Personas | generated from the schema with a seed; 12 dev + 48 eval | settled |
 | Q5 | Belief representation | factorized categorical per slot | settled |
 | Q6 | Belief updater | LLM likelihoods + Bayes rule; rule matcher as the no-LLM baseline | settled |
-| Q7 | Question types and EIG | analytic EIG under a noisy-answer model; add choice questions | settled |
+| Q7 | Question types and EIG | analytic EIG + one small Monte Carlo EIG arm; add choice questions | settled |
 | Q8 | Stopping rule | budget K plus a confidence threshold τ | settled |
 | Q9 | Question phrasing | templates by default, LLM phrasing as one ablation | settled |
 | Q10 | Recommendation target | fixed synthetic catalog (objective regret); LLM judge optional | settled |
 | Q11 | User simulator | LLM simulator for experiments, rule oracle for tests | settled |
-| Q12 | Experiment grid | selector × updater factorial, phrasing as a separate ablation | settled |
+| Q12 | Experiment grid | selector × updater factorial, 5 replicates, phrasing as a separate ablation | settled |
 | Q13 | Hypotheses | frozen in this file before the full run | settled |
-| Q14 | Models per role | judge and simulator from a different family than the agent | settled |
+| Q14 | Models per role | agent qwen3:32b; simulator and judge llama3.3:70b (different family) | settled |
 | Q15 | Structured outputs | pydantic models → JSON schema per role | settled |
 | Q16 | Config and CLI | TOML experiment files + one `argparse` CLI | settled |
 | Q17 | Packaging and tooling | `src/` layout, pyproject, ruff, pytest, CI on the mock backend | settled |
@@ -50,6 +50,13 @@ the mock backend in under a minute and on a real model locally or on a cluster; 
 and figures.
 
 **Non-goals.** Paid APIs, fine-tuning, real human studies, a web front end (beyond Q20).
+
+**Size limits.** The project stays small on purpose:
+- Scope is M0–M6; M7 adds at most one extension.
+- The full experiment finishes in one cluster job of at most 12 h wall time on at most 4 GPUs.
+  Smoke runs stay under 1 h.
+- If the measured rate (M5 smoke run) projects past 12 h, the grid is cut, in this order: fewer
+  replicates (down to 3), drop K = 8, fewer Monte Carlo samples. The time limit is not extended.
 
 ## 2. Terms
 
@@ -132,7 +139,10 @@ correlated (Q5 B). The experiment must include at least one of these, or the EIG
 > **Decision Q7 — how EIG is computed.**
 > A: analytic, under an answer model "the answer reveals the true value with probability ρ, else a
 > random one". B: Monte Carlo, sampling simulated answers from an LLM and running the updater on
-> each. *Chosen A first* (cheap, exact, easy to explain); B as an optional extension.
+> each. *Chosen A as the main EIG selector* (cheap, exact, easy to explain), *plus B as one small
+> extra arm* (`sel=eig_mc`): S = 3 sampled answers per candidate question, run only at K = 5 with
+> the LLM updater. B costs about S × (number of candidate questions) × 2 LLM calls per turn, which
+> is why it is kept to one setting (see §1, size limits).
 
 > **Decision Q8 — when to stop asking.**
 > *Chosen:* budget K (sweep K ∈ {3, 5, 8}, fewer than the number of slots so that ordering
@@ -197,7 +207,8 @@ episode, derived from (replicate seed, persona id, arm).
 > **Decision Q12 — grid.** *Chosen:* selector {fixed, random, max_entropy, eig} × updater
 > {rule, llm} = 8 arms, each × K values; phrasing (Q9) and simulator noise (Q11) as separate small
 > ablations on the best arm. Arms are named by their components, e.g. `sel=eig,upd=llm,phr=tpl`.
-> 3 replicates. Statistics: average replicates per persona, then paired Wilcoxon signed-rank over
+> Plus the `sel=eig_mc` arm from Q7. 5 replicates (3 if the time limit in §1 requires it).
+> Statistics: average replicates per persona, then paired Wilcoxon signed-rank over
 > eval personas with bootstrap CIs and Holm correction across comparisons.
 
 > **Decision Q13 — hypotheses** (draft; freeze before the full run):
@@ -206,10 +217,10 @@ episode, derived from (replicate seed, persona id, arm).
 > H3 the LLM updater beats the rule updater, and the gap grows with vaguer answer styles.
 > H4 better final belief → lower regret (episode-level correlation).
 
-> **Decision Q14 — models per role.** *Chosen:* agent roles (updater, phrasing) on the main
-> model (32B class on a cluster GPU, 4B class locally on 6 GB VRAM for development); simulator and
-> judge on a different model family to limit self-preference. Thinking/reasoning output off for
-> roles that must return JSON.
+> **Decision Q14 — models per role.** *Chosen:* agent roles (updater, phrasing) on qwen3:32b;
+> simulator and judge on llama3.3:70b, a different family, to limit self-preference. Both run on
+> cluster GPUs (A40, 48 GB). Development uses the mock backend and a 4B-class model locally
+> (6 GB VRAM). Thinking/reasoning output off for roles that must return JSON.
 
 ## 14. LLM layer
 
@@ -227,8 +238,10 @@ One client, providers `ollama` (native API), `openai_compatible` (any local serv
 ## 15. Infrastructure
 
 - Local: Ollama + small model; mock backend for CI and tests.
-- Cluster: Slurm job that starts an Ollama server on the GPU node and runs the suite against it;
-  submit script with a resume-by-default runner (finished (arm, replicate) cells are skipped).
+- Cluster: one Slurm job on up to 4 A40 GPUs, one Ollama server per GPU (two for the agent model,
+  two for the simulator/judge model); the client spreads each role's calls over that role's
+  servers. Submit script with a resume-by-default runner (finished (arm, replicate) cells are
+  skipped), so a job that hits its time limit is resubmitted, not restarted.
 - Run-health report: per-role error and parse rates, readable while a job runs.
 - No account names, usernames or home paths in the repo; site settings live in an untracked
   `local.env`.
@@ -270,9 +283,9 @@ results_summary/ committed tables
 | M2 | LLM layer (client, cache, mock, Ollama), LLM updater, phrasing, LLM simulator | mock suite in CI; local small-model smoke run with 0 errors |
 | M3 | EIG selector + question types, recommender, metrics | EIG unit tests (EIG = H for noise-free open questions; EIG ≤ 1 bit for yes/no) |
 | M4 | runner, run-health, analysis, figures | analysis runs on mock output and refuses to write committed tables from it |
-| M5 | cluster jobs, full run | all cells finished; error rate 0; parse failures < 1 % per role |
+| M5 | cluster jobs (≤ 4 A40), smoke run to measure the call rate, full run | all cells finished within the §1 time limit; error rate 0; parse failures < 1 % per role |
 | M6 | README results, demo, release | fresh-clone test passes on a clean venv |
-| M7 | optional: second domain, Monte Carlo EIG, joint belief, judge study | — |
+| M7 | optional, at most one: second domain, joint belief, or judge study | — |
 
 ## 18. Results and release
 
