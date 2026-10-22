@@ -334,7 +334,10 @@ answer (common random numbers), which tightens the paired comparisons in §13.
 
 - Belief, per turn: mean posterior mass on the true value; MAP accuracy over slots; log loss;
   mean entropy.
-- Efficiency: turns until confident; area under the accuracy-vs-turn curve.
+- Efficiency: turns until confident; area under the accuracy-vs-turn curve. *M4:* the curve runs
+  over turns 0 … K (turn 0 = the prior); an episode that stopped early keeps its last value up to
+  K, since the belief no longer changes. The area is the trapezoid rule over the K + 1 points
+  divided by K, so it lies in [0, 1] like MAP accuracy itself.
 - Outcome: regret, hit@k, constraint violations (Q10). Computed after every turn, like the
   belief metrics. Regret $= \max_i u(i, t) - u(\text{top item}, t)$. hit@k (k = 1, 5, 10) = 1 when
   the top k items contain at least one item of maximal true utility. Violations = number of
@@ -352,12 +355,43 @@ answer (common random numbers), which tightens the paired comparisons in §13.
 > (the ablations) are listed by name in `extra_arms`.
 > Statistics: average replicates per persona, then paired Wilcoxon signed-rank over
 > eval personas with bootstrap CIs and Holm correction across comparisons.
+>
+> *Statistics in detail (M4).* The unit is the persona: each metric is first averaged over the
+> replicates of a persona, so a test over 48 eval personas has n = 48 whatever the replicate
+> count. For a comparison "arm A vs arm B" at budget K the per-persona differences A − B are
+> rounded to 10 decimals (so float noise does not turn an exact tie into a tiny nonzero
+> difference) and tested with the two-sided Wilcoxon signed-rank test (zero differences dropped,
+> p = 1 when every difference is zero). The table reports the mean difference, a 95 % percentile
+> bootstrap CI over personas (10 000 resamples, fixed seed), wins / ties / losses, p and the
+> Holm-adjusted p. A Holm family is one metric: all comparisons and budgets of that metric in
+> the run. Lower is better for log loss, entropy, regret and violations; the table says which.
+> - *Comparisons.* An experiment file may list them in an `[analysis]` table
+>   (`comparisons = [[A, B], …]`, plus `metrics`, `curve_metrics`, `bootstrap`). Without one, the
+>   default is every pair of arms that differ in exactly one component (selector, updater or
+>   phraser), with A the arm listed later. The frozen hypotheses (Q13) become the `[analysis]`
+>   table of the full-run file.
+> - *Outputs* of `elicitor analyze <run dir>`: `arms.csv` (per arm and budget: persona means
+>   with bootstrap CIs, turns, confident share, leak rate, accuracy AUC), `comparisons.csv`,
+>   `curves.csv` (per-turn means and standard errors over personas), `results.md` (the tables in
+>   Markdown with the run's provenance) and per-turn curve figures (§16). By default they go to
+>   `<run dir>/analysis/`.
+> - *Committed outputs.* `--publish` writes to `results_summary/<name>/` and
+>   `docs/figures/<name>/`. Any output path inside a `results_summary` or `docs/figures` folder
+>   is only written from a run that is complete (every cell finished), used no mock provider,
+>   covers the eval split and was not cut with `--max-personas`; otherwise analysis refuses and
+>   writes nothing. The oracle suites qualify (their noise is known exactly, Q11); mock runs never
+>   do.
 
 > **Decision Q13 — hypotheses** (draft; freeze before the full run):
 > H1 `eig` > `fixed` and `random` on posterior mass on truth at budget K.
 > H2 `eig` > `max_entropy` only in settings where they can differ (§7).
 > H3 the LLM updater beats the rule updater, and the gap grows with vaguer answer styles.
 > H4 better final belief → lower regret (episode-level correlation).
+>
+> *Open before freezing (from M3):* under the assumed ρ 0.7 / 0.8 / 0.9 `eig` asks only choice
+> questions, most listing every option of a slot, so its gain over `max_entropy` comes from the
+> assumed reliability gap. Whether `eig_open` or an all-options-choice arm joins the main grid is
+> decided here, with the ρ per type measured in M5, before the full run.
 
 > **Decision Q14 — models per role.** *Chosen:* agent roles (updater, phrasing) on qwen3:32b;
 > simulator and judge on llama3.3:70b, a different family, to limit self-preference. Both run on
@@ -415,6 +449,33 @@ One client, providers `ollama` (native API), `openai_compatible` (any local serv
   `ELICITOR_BASE_URL`, when set, overrides the `base_url` of the experiment's `[llm]` table, so a
   job can point the client at the port it picked. M5 extends this to several servers.
 
+**M4: resume and run health.**
+- *Cells.* A cell is one (arm, replicate): every budget and every persona of that arm and
+  replicate. `elicitor run` writes each finished cell to `cells/<arm>__r<replicate>.jsonl` (written
+  to a temporary file and renamed, so a cell file is either complete or absent) together with
+  `cells/<…>.stats.json` (its LLM call statistics and wall time). A run resumes by default:
+  finished cells are skipped, and a cell that a killed job left half done is run again, cheaply,
+  because its LLM replies are in the cache. `--fresh` discards the cells (not the cache).
+- *Fingerprint.* `run_state.json` records a SHA-256 over everything that changes a cell's
+  content: package version, domain, split, seed, budgets, τ, simulator, selector, updater and LLM
+  settings (without `base_url`, `timeout` and `cache`, which do not change replies),
+  `--max-personas` and the bytes of the domain's data and prompt files. A run into a folder with
+  a different fingerprint stops with an error. The arm list and the replicate count are not
+  part of it, so arms or replicates can be added to a finished run; cells of arms no longer in
+  the file are kept but ignored.
+- *Merged outputs.* When every cell is finished, `episodes.jsonl` (arm, replicate, budget,
+  persona order), `summary.csv` and `llm_stats.json` (summed over cells, so a resumed run counts
+  every job) are rebuilt from the cells. Episodes and summary are byte-identical to an
+  uninterrupted run; the LLM statistics differ only in latency and in calls that a killed job
+  already made (they show up as cache hits).
+- *Live state.* After every episode the runner rewrites `live.json`: the cell in progress, its
+  episode count and its LLM statistics so far (best effort; a failed write is skipped).
+- *`elicitor health <run dir>`* reads only these files, so it works while a job runs: cells done
+  / total, episodes, mean wall time per cell run in this folder and a naive ETA, the age of
+  `live.json`, and per role calls, cache hits, parse-failure rate (per attempt), failed calls and
+  transport errors. It exits 1 when a role has a failed call, a transport error, or a parse
+  failure rate of 1 % or more (the M5 bar), else 0.
+
 ## 16. Repo layout and tooling
 
 ```text
@@ -425,7 +486,8 @@ src/<pkg>/
   selectors/  (fixed.py, random.py, entropy.py, eig.py)
   phrasing.py  simulator/ (oracle.py, llm.py)  recommender.py
   llm/        (client.py, providers.py, cache.py, roles.py, mock.py)
-  experiments/ (config.py, runner.py)   analysis/ (stats.py, figures.py)
+  experiments/ (config.py, runner.py, store.py, health.py)
+  analysis/    (stats.py, report.py, figures.py)
   cli.py
 data/<domain>/   schema.toml  personas.jsonl  catalog.jsonl  prompts/
 experiments/     *.toml
@@ -443,7 +505,10 @@ results_summary/ committed tables
 > **Decision Q17 — packaging and tooling.** *Chosen* pyproject + setuptools, plain venv/pip,
 > ruff (lint + format), pytest, GitHub Actions running tests and the mock suite on every push.
 > Few dependencies: numpy, scipy, pydantic, httpx, matplotlib, pandas. Each is added in the
-> milestone that first needs it (pydantic and httpx in M2).
+> milestone that first needs it (pydantic and httpx in M2; numpy, scipy and matplotlib in M4).
+> pandas turned out unnecessary in M4 (the tables are small) and is not added.
+> Figures: matplotlib with the non-interactive Agg backend, PNG at 150 dpi; one figure per
+> curve metric and budget, one line per arm with a ±1.96 standard-error band over personas.
 
 > **Decision Q18 — license.** *Chosen* MIT.
 
@@ -455,7 +520,7 @@ results_summary/ committed tables
 | M1 | schema, personas, belief, rule updater, fixed/random/entropy selectors, oracle simulator, catalog, episode loop; also template phrasing, belief metrics and a minimal `run` (no resume) so the suite can run | full suite runs with no LLM; belief and entropy unit tests pass |
 | M2 | LLM layer (client, cache, mock, Ollama), LLM updater, phrasing, LLM simulator | mock suite in CI; smoke run on a real model (dev personas) with 0 transport errors and 0 failed calls; parse failures and leakage reported. Changed 10-22: Ollama is not installed on the development laptop, so the M2 smoke runs as a one-GPU cluster job with qwen3:32b for both model groups (the agent model of Q14, already on the cluster; llama3.3:70b is first tested in M5). `experiments/m2_smoke_ollama.toml` (qwen3:4b) stays as the local option. **Done 10-22:** three smoke jobs, all with 0 errors, 0 parse failures and 0 failed calls; leakage settled after two prompt and text fixes (§9) |
 | M3 | EIG selector + question types (templates, oracle, rule and LLM updaters, mock), recommender, outcome metrics | EIG unit tests (EIG = H for noise-free open questions; EIG ≤ 1 bit for yes/no); the m1 and m2 suites still run; an `eig` arm runs in CI (oracle suite `m3_eig` and mock suite `m3_mock`). **Done 10-22.** Oracle suite, ρ 0.7 / 0.8 / 0.9: `eig` raises mass on truth over `max_entropy` from 0.446 to 0.503 at K = 5 and from 0.570 to 0.644 at K = 8 (regret 0.182 → 0.161 and 0.126 → 0.098; at K = 3 regret is equal). It asks only choice questions: 69 % offer every concrete value of a 3-value slot, i.e. the open question with its options listed, and 31 % offer 3 of the 4 values of a 4-value slot. So in this suite its gain comes from the reliability gap assumed between open and closed questions, which makes the M5 estimate of ρ per type decisive for H2. `eig_open` asks exactly the questions of `max_entropy` in all 720 episodes (one ρ for every slot). The mock suite uses the same ρ table in the agent's model so that closed questions go through the LLM paths |
-| M4 | runner, run-health, analysis, figures | analysis runs on mock output and refuses to write committed tables from it |
+| M4 | runner (resume by default), run-health, analysis, figures; CLI `analyze` and `health` | analysis runs on mock output and refuses to write committed tables from it; an interrupted run resumed gives the same bytes as an uninterrupted one; the m1/m2/m3 suites still run in CI |
 | M5 | cluster jobs (≤ 4 A40), smoke run to measure the call rate, full run | all cells finished within the §1 time limit; error rate 0; parse failures < 1 % per role |
 | M6 | README results, demo, release | fresh-clone test passes on a clean venv |
 | M7 | optional, at most one: second domain, joint belief, or judge study | — |
