@@ -19,6 +19,7 @@ if [[ -n "${OLLAMA_MODULE:-}" ]]; then module load "$OLLAMA_MODULE"; fi
 source cluster/local.env
 export OLLAMA_MODELS
 source .venv/bin/activate
+export PYTHONUNBUFFERED=1  # progress lines reach the log as they happen
 
 nvidia-smi --query-gpu=name,memory.total --format=csv
 export OLLAMA_LOG="logs/ollama-$SLURM_JOB_ID.log"

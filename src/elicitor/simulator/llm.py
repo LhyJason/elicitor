@@ -39,8 +39,10 @@ class LLMSimulator:
         self.styles = styles
 
     def respond(self, question: Question, text: str, persona: Persona, rng: random.Random) -> str:
+        slot = self.schema.slot(question.slot)
         context = {
-            "slot": self.schema.slot(question.slot),
+            "slot": slot,
+            "topic": slot.description.rstrip("."),
             "persona": persona,
             "profile": profile_lines(self.schema, persona),
             "backstory": f"Background: {persona.backstory}\n" if persona.backstory else "",

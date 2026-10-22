@@ -9,7 +9,11 @@ $backstory
 How you talk: $style_guide
 
 The travel agent asks: "$question"
+This question is about: $topic
 
-Answer only this question, the way this person would say it out loud, in your own words rather
-than the wording of the list. Do not bring up your other preferences.
+Answer the way this person would say it out loud, in your own words rather than the wording of
+the list.
+- Talk about this one topic only. Do not mention any other item on your list, not even in a
+  story, an example or a side remark.
+- If your list says you have no particular preference on this topic, say that.
 Return {"answer": "..."}.

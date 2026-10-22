@@ -8,6 +8,6 @@ It asks about: $slot_description
 
 Rewrite it as one natural, conversational question of at most 25 words.
 - Ask about this topic only.
-- Do not list or suggest possible answers.
+- Do not list, suggest or contrast possible answers (no "this or that" questions).
 - Keep the meaning.
 Return {"question": "..."}.

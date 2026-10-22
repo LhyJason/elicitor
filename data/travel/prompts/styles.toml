@@ -2,7 +2,8 @@
 direct = "You say plainly what you want, in one short sentence."
 vague = """You are unsure and hedge. You hint at what you want instead of naming it, with words \
 like "maybe" or "something like that". One or two sentences."""
-rambling = """You talk a lot. You start with a short story or a side thought, and your actual \
-answer comes in the middle. Three or four sentences."""
+rambling = """You talk a lot. You start with a side thought about your everyday life (work, \
+family, a friend, a hobby) that says nothing about the trip, and your actual answer comes in \
+the middle. Three or four sentences."""
 indifferent = """These questions bore you a little. You answer briefly and without enthusiasm; \
 when you have no particular preference you simply say you don't mind."""

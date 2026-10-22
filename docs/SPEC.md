@@ -169,8 +169,9 @@ correlated (Q5 B). The experiment must include at least one of these, or the EIG
 > a natural question. *Chosen A by default, B as one ablation* to measure whether nicer phrasing
 > changes how informative the simulated answers are.
 >
-> *B in detail (M2):* the LLM gets the slot description, the template question and the value
-> labels, and returns one question that asks about that slot only and suggests no answer.
+> *B in detail (M2):* the LLM gets the slot description and the template question (not the value
+> labels, so it cannot list them), and returns one question that asks about that slot only and
+> suggests no answer.
 > Temperature 0.7, seeded per (replicate, persona, slot, ask count), so arms that ask the same
 > question see the same wording. A reply that fails validation falls back to the template.
 
@@ -190,6 +191,15 @@ Answers a question in character, using only the persona; must not volunteer the 
 > of §11 (common random numbers). A reply that fails validation becomes an empty answer, which the
 > updaters treat as no information. Leakage is measured with the rule matcher's keywords on the
 > unasked slots, so it is approximate (a generic word such as "walking" can be a false hit).
+>
+> *Dev smoke 1 (10-22, qwen3:32b as simulator, 12 dev personas, K = 5, 180 answers):* 62 answers
+> (34 %) leaked, mostly `setting` (33) and `climate` (12). Reading them: most are real
+> volunteering ("a place with hot, tropical weather for outdoor adventure" when asked about the
+> setting); some are anecdotes in the rambling style that name a place without stating a
+> preference ("a rooftop bar ... sunset over the mountains"). *Decision (user, 10-22):* tune the
+> simulator prompt on the dev personas first (the prompt also names the topic asked, forbids
+> other list items even in stories or side remarks, and the rambling style draws its stories from
+> outside the trip preferences), rerun the smoke, and apply the 10 % rule of §6 to the new rate.
 
 ## 10. Recommendation and evaluation target
 

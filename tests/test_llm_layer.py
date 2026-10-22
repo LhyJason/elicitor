@@ -144,6 +144,7 @@ def test_prompts_render_without_leftover_placeholders(roles, schema, persona):
             "backstory": "",
             "style_guide": load_styles(PROMPTS / "styles.toml")[persona.style],
             "question": slot.question,
+            "topic": slot.description,
         },
     }
     for name, role in roles.items():
@@ -334,6 +335,7 @@ def test_mock_provider_is_deterministic(roles, schema, persona):
         "backstory": "",
         "style_guide": load_styles(PROMPTS / "styles.toml")[persona.style],
         "question": slot.question,
+        "topic": slot.description,
     }
     client = client_with(roles, MockProvider())
     answers = {client.call("simulate", ctx, seed=s).answer for s in range(30)}
