@@ -186,7 +186,8 @@ def test_mock_suite_runs_and_reruns_from_cache(tmp_path):
         assert role["failed_calls"] == 0 and role["transport_errors"] == 0
     episodes_before = (tmp_path / "episodes.jsonl").read_bytes()
 
-    run_experiment(config, tmp_path, max_personas=4)
+    # --fresh discards the finished cells but keeps the reply cache.
+    run_experiment(config, tmp_path, max_personas=4, fresh=True)
     stats = json.loads((tmp_path / "llm_stats.json").read_text(encoding="utf-8"))["roles"]
     assert all(r["attempts"] == 0 and r["cache_hits"] == r["calls"] for r in stats.values())
     assert (tmp_path / "episodes.jsonl").read_bytes() == episodes_before

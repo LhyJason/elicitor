@@ -25,3 +25,10 @@ jobs:
       - run: elicitor run experiments/m2_mock.toml
       - run: elicitor run experiments/m3_eig.toml
       - run: elicitor run experiments/m3_mock.toml
+      - run: elicitor run experiments/m3_mock.toml  # resumes: every cell is skipped
+      - run: elicitor health results/m3_mock
+      - run: elicitor analyze results/m3_mock
+      - run: elicitor analyze results/m3_eig --no-figures
+      - name: analysis refuses to publish mock output
+        shell: bash
+        run: "! elicitor analyze results/m3_mock --publish"

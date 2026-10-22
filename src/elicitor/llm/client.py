@@ -163,6 +163,10 @@ class LLMClient:
 
     # ------------------------------------------------------------ reporting
 
+    def reset_stats(self) -> None:
+        """Start counting from zero (the runner keeps statistics per cell)."""
+        self.stats = {name: RoleStats() for name in self.roles}
+
     def stats_dict(self) -> dict[str, Any]:
         return {
             "provider": self.provider.name,

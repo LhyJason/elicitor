@@ -11,7 +11,9 @@ from typing import Any
 _KEYS = {
     "name", "domain", "data_dir", "split", "seed", "replicates", "budgets", "tau",
     "selectors", "updaters", "phrasers", "extra_arms", "simulator", "selector", "updater", "llm",
+    "analysis",
 }  # fmt: skip
+_ANALYSIS_KEYS = {"comparisons", "metrics", "curve_metrics", "bootstrap"}
 _ARM_PARTS = ("sel", "upd", "phr")
 
 
@@ -59,6 +61,8 @@ class ExperimentConfig:
     selector_params: dict[str, dict[str, Any]] = field(default_factory=dict)
     updater_params: dict[str, dict[str, Any]] = field(default_factory=dict)
     llm: dict[str, Any] = field(default_factory=dict)
+    analysis: dict[str, Any] = field(default_factory=dict)  # SPEC §13, statistics in detail
+    source: str = field(default="", compare=False, repr=False)  # the TOML text, for provenance
 
     @property
     def arms(self) -> list[Arm]:
@@ -90,15 +94,15 @@ class ExperimentConfig:
 
 def load_config(path: str | Path) -> ExperimentConfig:
     path = Path(path)
-    with open(path, "rb") as f:
-        raw = tomllib.load(f)
+    source = path.read_text(encoding="utf-8")
+    raw = tomllib.loads(source)
     unknown = set(raw) - _KEYS
     if unknown:
         raise ValueError(f"{path}: unknown keys {sorted(unknown)}")
     budgets = tuple(int(k) for k in raw["budgets"])
     if not budgets or min(budgets) < 1:
         raise ValueError(f"{path}: budgets must be positive")
-    return ExperimentConfig(
+    config = ExperimentConfig(
         name=raw["name"],
         domain=raw["domain"],
         # Relative data paths are relative to the experiment file, not the working directory.
@@ -116,4 +120,21 @@ def load_config(path: str | Path) -> ExperimentConfig:
         selector_params={k: dict(v) for k, v in raw.get("selector", {}).items()},
         updater_params={k: dict(v) for k, v in raw.get("updater", {}).items()},
         llm=dict(raw.get("llm", {})),
+        analysis=dict(raw.get("analysis", {})),
+        source=source,
     )
+    _check_analysis(config, path)
+    return config
+
+
+def _check_analysis(config: ExperimentConfig, path: Path) -> None:
+    unknown = set(config.analysis) - _ANALYSIS_KEYS
+    if unknown:
+        raise ValueError(f"{path}: unknown [analysis] keys {sorted(unknown)}")
+    names = {arm.name for arm in config.arms}
+    for pair in config.analysis.get("comparisons", []):
+        if len(pair) != 2:
+            raise ValueError(f"{path}: a comparison is a pair of arm names, got {pair!r}")
+        missing = [Arm.parse(name).name for name in pair if Arm.parse(name).name not in names]
+        if missing:
+            raise ValueError(f"{path}: comparison names arms not in the grid: {missing}")
