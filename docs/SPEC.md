@@ -108,6 +108,16 @@ A persona = ground-truth value for every slot + an answer style + a short backst
 > *Backstories (M2):* kept in a separate `data/<domain>/backstories.jsonl` (persona id → text) and
 > merged at load time, so `make-data --check` stays deterministic without an LLM. They are written
 > once in M5 with the simulator model and then frozen; until then the simulator works without them.
+>
+> *Backstories in detail (M5):* `elicitor make-backstories <experiment file>` asks the `user`
+> model group (role `backstory`, temperature 0.8) for every persona, dev and eval. The prompt gets
+> only the answer style, never the ground truth, and asks for 2–3 sentences about who the person
+> is (work, household, an everyday hobby) with nothing about travel, places, weather, food,
+> lodging, money or time off. The backstory therefore cannot contradict the profile, and it adds
+> no preference the simulator could leak. A backstory in which the leakage keywords (§9) find any
+> slot value is drawn again with the next seed, up to 5 draws; the command reports any that stay
+> flagged. The file is then committed and never regenerated: the command refuses to overwrite it
+> without `--force`.
 
 ## 5. Belief model
 
@@ -211,6 +221,38 @@ correlated (Q5 B). The experiment must include at least one of these, or the EIG
 >   alone puts the MAP on the true outcome) and frozen before the full run.
 > - *`eig_mc` (M5):* scoring all 105 candidates would cost about 600 LLM calls per turn, so it
 >   scores a shortlist of the top candidates by analytic EIG; the shortlist size is set in M5.
+>
+> *ρ per type in detail (M5).* `elicitor calibrate <experiment file>` asks the dev personas
+> single questions from the prior belief with template wording: for every persona and slot the
+> open question, one choice between two values and one between three (two pairs for a slot with
+> only two concrete values), and two yes/no questions, drawn with a seeded generator (12 × 9 × 5
+> = 540 answers). Each answer is read by both updaters. A reading is correct when the true
+> outcome $f_q(t)$ has the largest likelihood among the outcomes (the mean likelihood of the
+> values behind an outcome; a tie between $j$ outcomes counts $1/j$ when the true one is among
+> them). Under the answer model the correct rate is $a = \rho + (1-\rho)/m$, so
+> $\hat\rho = (\bar a - \overline{1/m}) / (1 - \overline{1/m})$ per type and updater, clipped to
+> [0, 1], with a 95 % bootstrap CI over personas. Frozen use: the selectors (`eig`, `eig_mc` and
+> the other EIG arms) take $\hat\rho$ measured with the LLM updater, the main updater; the rule
+> updater takes its own $\hat\rho$ (its noise model is a statement about how well it reads).
+> The calibration answers are written out, so leakage can be read on them too.
+>
+> *`eig_mc` in detail (M5).* Shortlist: the L = 5 candidates with the largest analytic EIG
+> (frozen ρ). For each shortlisted question $q$ on slot $s$ and each value $v$ with $b_s(v) > 0$,
+> the agent imagines S = 3 answers of a user whose preference on $s$ is $v$ (role `imagine`,
+> agent model group, template wording, temperature 0.8) and reads each with the LLM updater,
+> giving likelihoods $\ell_{v,j}$. Then
+> $\widehat{\mathrm{EIG}}(q) = \sum_v b_s(v)\,\frac{1}{S}\sum_j
+> \bigl[H(b_s) - H(b_s \cdot \ell_{v,j} / Z)\bigr]$, and the arm asks the shortlisted question
+> with the largest estimate (ties to shortlist order). The imagined answers are seeded by
+> (replicate seed, question, value, j) only, and neither prompt sees the belief, so both calls
+> are cached across turns and personas: a replicate costs at most
+> 105 × 5 × 3 × 2 ≈ 3,000 calls, in practice far fewer because the shortlists repeat. This is S
+> answers per (question, value) instead of S per question, which removes the sampling noise of
+> drawing $v$ and costs nothing extra after the cache. Run at K = 5 only (`arm_budgets`, §13).
+> - *Selector `entropy_choice` (M5):* a heuristic baseline for H2. It takes the slot of
+>   `max_entropy` and asks, of that slot's choice questions, the one with the largest analytic
+>   EIG (for a slot with three concrete values, all three). If `eig` ≈ `entropy_choice`, the gain
+>   of `eig` over `max_entropy` comes from listing the options, not from the EIG computation.
 
 > **Decision Q8 — when to stop asking.**
 > *Chosen:* budget K (sweep K ∈ {3, 5, 8}, fewer than the number of slots so that ordering
@@ -352,7 +394,9 @@ answer (common random numbers), which tightens the paired comparisons in §13.
 > ablations on the best arm. Arms are named by their components, e.g. `sel=eig,upd=llm,phr=tpl`.
 > Plus the `sel=eig_mc` arm from Q7. 5 replicates (3 if the time limit in §1 requires it).
 > In the experiment file the grid is `selectors × updaters × phrasers`, and single extra arms
-> (the ablations) are listed by name in `extra_arms`.
+> (the ablations) are listed by name in `extra_arms`. *M5:* `arm_budgets` maps an arm name to the
+> budgets it runs at (default: all of `budgets`), so `eig_mc` runs at K = 5 only; it is part of
+> the run fingerprint. Comparisons skip budgets an arm does not have.
 > Statistics: average replicates per persona, then paired Wilcoxon signed-rank over
 > eval personas with bootstrap CIs and Holm correction across comparisons.
 >
@@ -430,6 +474,23 @@ One client, providers `ollama` (native API), `openai_compatible` (any local serv
   `num_ctx` is pinned because changing it reloads the model. HTTP clients ignore proxy settings
   from the environment (local servers only).
 
+**M5 details.**
+- New roles: `imagine` (agent group; §7 `eig_mc`: answer as a user whose preference on one slot
+  is a given value) and `backstory` (user group; §4). `think` may be a table by model group
+  (`think = { agent = false }`): a group not listed gets no `think` field, since llama3.3 has no
+  thinking mode.
+- *Several servers.* `base_url` may be a table of lists by group
+  (`base_url = { agent = [...], user = [...] }`); the environment variables
+  `ELICITOR_SERVERS_AGENT` and `ELICITOR_SERVERS_USER` (comma-separated) override it per group,
+  as `ELICITOR_BASE_URL` overrides a single URL. Each request goes to the server of its role's
+  group with the fewest requests in flight (ties to list order). The cache key does not contain
+  the server, so a reply is the same whichever server produced it.
+- *Concurrency.* The client is thread-safe. Requests with the same cache key are single-flight:
+  while one is in flight, an identical one waits for its reply and counts as a cache hit. So
+  when two arms ask the same question at the same time they still get the same answer (common
+  random numbers, §11), as they would one after the other. Statistics are counted per task (see
+  §15) and summed per cell.
+
 > **Decision Q15.** *Chosen* pydantic v2 models for each role's output; the same model produces
 > the JSON schema sent to the server and validates the reply.
 
@@ -476,6 +537,30 @@ One client, providers `ollama` (native API), `openai_compatible` (any local serv
   transport errors. It exits 1 when a role has a failed call, a transport error, or a parse
   failure rate of 1 % or more (the M5 bar), else 0.
 
+**M5: several GPUs.**
+- *Parallel runner.* `elicitor run --workers N` runs tasks on N threads. A task is one
+  (cell, persona): that persona's episodes at every budget of the arm, smallest budget first, so
+  a longer episode finds the shorter one's turns in the cache. Tasks are queued cell by cell, in
+  grid order; a cell is written as soon as its last task ends, with its episodes in the same
+  order as before (budget, then persona). With the mock or the oracle the cells are byte-identical
+  for any N. `--workers` is not part of the fingerprint. `live.json` lists every cell in
+  progress.
+- *Job scripts.* `cluster/serve_models.sh` starts one Ollama server per GPU (pinned with
+  `CUDA_VISIBLE_DEVICES`, its own port, `OLLAMA_NUM_PARALLEL` per group, keep-alive forever,
+  flash attention on, context length = the experiment's `num_ctx`), loads the group's model on
+  each, logs `ollama ps` (the model must sit 100 % on the GPU) and exports the server lists.
+  The models and `num_ctx` are read from the experiment file. `cluster/m5_smoke.sbatch` (4 GPUs,
+  1 h): backstories, calibration, then the smoke run and `health`. `cluster/full.sbatch`
+  (4 GPUs, 12 h): the full run, `health` and `analyze`. `cluster/smoke.sbatch` (one GPU, M2)
+  uses the same helper with both groups on one server; the helper replaces `serve_ollama.sh`,
+  and `cluster/job_setup.sh` holds the common setup (site settings, modules, venv).
+- *CI* also runs the mock suite `m5_mock` (every arm of the full run, `--workers 4`) and
+  `calibrate` on the oracle suite `m3_eig`, where the estimate must come out near the oracle's ρ.
+- *Smoke run* (`experiments/m5_smoke.toml`): the full-run arms on the 12 dev personas, one
+  replicate, with the M3 ρ table. Its wall time × 4 (personas) × replicates projects the full
+  run; if the projection exceeds 11 h (1 h kept for loading and the tail), the grid is cut in the
+  §1 order before submitting.
+
 ## 16. Repo layout and tooling
 
 ```text
@@ -500,7 +585,7 @@ results_summary/ committed tables
 > **Decision Q16 — config and CLI.** *Chosen* TOML experiment files read into dataclasses, one
 > `argparse` CLI with subcommands `run`, `analyze`, `health`, `demo`, plus `make-data`, which
 > regenerates the frozen persona and catalog files from the schema and a seed (`--check` only
-> compares). No Hydra.
+> compares). No Hydra. M5 adds `make-backstories` (§4) and `calibrate` (§7).
 
 > **Decision Q17 — packaging and tooling.** *Chosen* pyproject + setuptools, plain venv/pip,
 > ruff (lint + format), pytest, GitHub Actions running tests and the mock suite on every push.
@@ -521,7 +606,7 @@ results_summary/ committed tables
 | M2 | LLM layer (client, cache, mock, Ollama), LLM updater, phrasing, LLM simulator | mock suite in CI; smoke run on a real model (dev personas) with 0 transport errors and 0 failed calls; parse failures and leakage reported. Changed 10-22: Ollama is not installed on the development laptop, so the M2 smoke runs as a one-GPU cluster job with qwen3:32b for both model groups (the agent model of Q14, already on the cluster; llama3.3:70b is first tested in M5). `experiments/m2_smoke_ollama.toml` (qwen3:4b) stays as the local option. **Done 10-22:** three smoke jobs, all with 0 errors, 0 parse failures and 0 failed calls; leakage settled after two prompt and text fixes (§9) |
 | M3 | EIG selector + question types (templates, oracle, rule and LLM updaters, mock), recommender, outcome metrics | EIG unit tests (EIG = H for noise-free open questions; EIG ≤ 1 bit for yes/no); the m1 and m2 suites still run; an `eig` arm runs in CI (oracle suite `m3_eig` and mock suite `m3_mock`). **Done 10-22.** Oracle suite, ρ 0.7 / 0.8 / 0.9: `eig` raises mass on truth over `max_entropy` from 0.446 to 0.503 at K = 5 and from 0.570 to 0.644 at K = 8 (regret 0.182 → 0.161 and 0.126 → 0.098; at K = 3 regret is equal). It asks only choice questions: 69 % offer every concrete value of a 3-value slot, i.e. the open question with its options listed, and 31 % offer 3 of the 4 values of a 4-value slot. So in this suite its gain comes from the reliability gap assumed between open and closed questions, which makes the M5 estimate of ρ per type decisive for H2. `eig_open` asks exactly the questions of `max_entropy` in all 720 episodes (one ρ for every slot). The mock suite uses the same ρ table in the agent's model so that closed questions go through the LLM paths |
 | M4 | runner (resume by default), run-health, analysis, figures; CLI `analyze` and `health` | analysis runs on mock output and refuses to write committed tables from it; an interrupted run resumed gives the same bytes as an uninterrupted one; the m1/m2/m3 suites still run in CI. **Done 10-22.** CI also resumes `m3_mock` (every cell skipped), runs `health` and `analyze` on it and checks that `--publish` refuses it. First paired reading of the oracle suite `m3_eig` (48 personas, 5 replicates, Holm over 30 tests per metric): `eig` − `max_entropy` mass on truth +0.031 / +0.057 / +0.073 at K = 3 / 5 / 8 (all p < 0.001 after Holm), log loss lower at K = 5 and 8, violations lower at K = 5 and 8; MAP accuracy and regret do not differ after Holm (regret −0.028 at K = 8, Holm p = 0.07) |
-| M5 | cluster jobs (≤ 4 A40), smoke run to measure the call rate, full run | all cells finished within the §1 time limit; error rate 0; parse failures < 1 % per role |
+| M5 | cluster jobs (≤ 4 A40), first test of llama3.3:70b as simulator, frozen backstories, smoke run to measure the call rate and re-measure leakage, ρ per type measured on the dev personas and frozen, Q13 frozen, full run | all cells finished within the §1 time limit; error rate 0; parse failures < 1 % per role (`elicitor health` passes); `elicitor analyze --publish` accepts the run |
 | M6 | README results, demo, release | fresh-clone test passes on a clean venv |
 | M7 | optional, at most one: second domain, joint belief, or judge study | — |
 
