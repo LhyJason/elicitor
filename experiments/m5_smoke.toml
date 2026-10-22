@@ -46,4 +46,4 @@ timeout = 600
 
 [llm.models]
 agent = "qwen3:32b"
-user = "llama3.3:70b"
+user = "llama3.3:latest"  # the 70B Q4_K_M (42.5 GB); the shared model folder has no :70b tag

@@ -441,6 +441,8 @@ answer (common random numbers), which tightens the paired comparisons in §13.
 > simulator and judge on llama3.3:70b, a different family, to limit self-preference. Both run on
 > cluster GPUs (A40, 48 GB). Development uses the mock backend and a 4B-class model locally
 > (6 GB VRAM). Thinking/reasoning output off for roles that must return JSON.
+> *M5:* the cluster's shared model folder holds llama3.3 as `llama3.3:latest` (the 70B model,
+> Q4_K_M, 42.5 GB) and a Q8 tag too large for one A40, so the experiment files name `llama3.3:latest`.
 
 ## 14. LLM layer
 
