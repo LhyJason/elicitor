@@ -191,8 +191,11 @@ rec   = recommender.rank(belief, catalog)
 score = evaluate(rec, persona, catalog)
 ```
 
-Every component is chosen by config, and every random draw comes from one seeded generator per
-episode, derived from (replicate seed, persona id, arm).
+Every component is chosen by config, and every random draw comes from a generator seeded by a hash
+of its context. The selector's generator is derived from (replicate seed, persona id, arm). Each
+simulated answer gets its own generator derived from (replicate seed, persona id, slot, how many
+times that slot has been asked). Arms that ask the same question therefore get the same noisy
+answer (common random numbers), which tightens the paired comparisons in §13.
 
 ## 12. Metrics
 
@@ -266,7 +269,9 @@ results_summary/ committed tables
 ```
 
 > **Decision Q16 — config and CLI.** *Chosen* TOML experiment files read into dataclasses, one
-> `argparse` CLI with subcommands `run`, `analyze`, `health`, `demo`. No Hydra.
+> `argparse` CLI with subcommands `run`, `analyze`, `health`, `demo`, plus `make-data`, which
+> regenerates the frozen persona and catalog files from the schema and a seed (`--check` only
+> compares). No Hydra.
 
 > **Decision Q17 — packaging and tooling.** *Chosen* pyproject + setuptools, plain venv/pip,
 > ruff (lint + format), pytest, GitHub Actions running tests and the mock suite on every push.
@@ -279,7 +284,7 @@ results_summary/ committed tables
 | M | Content | Done when |
 |---|---|---|
 | M0 | repo, pyproject, CI, empty package | CI green |
-| M1 | schema, personas, belief, rule updater, fixed/random/entropy selectors, oracle simulator, catalog, episode loop | full suite runs with no LLM; belief and entropy unit tests pass |
+| M1 | schema, personas, belief, rule updater, fixed/random/entropy selectors, oracle simulator, catalog, episode loop; also template phrasing, belief metrics and a minimal `run` (no resume) so the suite can run | full suite runs with no LLM; belief and entropy unit tests pass |
 | M2 | LLM layer (client, cache, mock, Ollama), LLM updater, phrasing, LLM simulator | mock suite in CI; local small-model smoke run with 0 errors |
 | M3 | EIG selector + question types, recommender, metrics | EIG unit tests (EIG = H for noise-free open questions; EIG ≤ 1 bit for yes/no) |
 | M4 | runner, run-health, analysis, figures | analysis runs on mock output and refuses to write committed tables from it |

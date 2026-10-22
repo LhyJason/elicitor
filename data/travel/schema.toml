@@ -1,0 +1,123 @@
+# Travel planning domain (SPEC §3).
+#
+# Categorical slots get a `no_preference` value appended automatically; its label and keywords
+# are shared and defined once below. Ordinal slots are binned numeric constraints: `edges` are the
+# bin boundaries (a value x falls in bin i when edges[i-1] <= x < edges[i]).
+# Keywords are matched case-insensitively as whole words or phrases by the rule updater.
+
+domain = "travel"
+description = "Planning a holiday trip for one traveller."
+
+[data]
+persona_seed = 20261001
+n_dev = 12
+n_eval = 48
+catalog_seed = 20261002
+catalog_size = 200
+
+[no_preference]
+label = "no particular preference"
+keywords = [
+    "no particular preference", "no preference", "no strong preference",
+    "don't have a preference", "don't mind", "don't care", "doesn't matter", "either way",
+    "whatever works", "not fussy", "not picky",
+]
+
+[slot.climate]
+kind = "categorical"
+description = "The weather the traveller wants at the destination."
+question = "What kind of weather would you like on this trip?"
+values = [
+    { name = "tropical", label = "hot, tropical weather", keywords = ["tropical", "hot", "humid", "sunny", "warm weather"] },
+    { name = "mild", label = "mild, temperate weather", keywords = ["mild", "temperate", "spring-like", "not too hot"] },
+    { name = "cold", label = "cold, wintry weather", keywords = ["cold", "wintry", "snow", "snowy", "chilly"] },
+]
+
+[slot.setting]
+kind = "categorical"
+description = "The type of place the traveller wants to stay in."
+question = "What kind of place would you like to go to?"
+values = [
+    { name = "beach", label = "somewhere by the beach", keywords = ["beach", "beaches", "coast", "coastal", "seaside", "ocean"] },
+    { name = "city", label = "a big city", keywords = ["city", "cities", "urban", "downtown", "metropolis"] },
+    { name = "mountains", label = "the mountains", keywords = ["mountain", "mountains", "alpine", "alps"] },
+    { name = "countryside", label = "the countryside", keywords = ["countryside", "rural", "village", "villages", "farmland"] },
+]
+
+[slot.pace]
+kind = "categorical"
+description = "How full the daily schedule should be."
+question = "How busy would you like your days to be?"
+values = [
+    { name = "relaxed", label = "a relaxed, slow pace", keywords = ["relaxed", "relaxing", "slow", "laid-back", "lazy", "unwind"] },
+    { name = "balanced", label = "a balanced pace", keywords = ["balanced", "moderate pace", "mix of both", "bit of both"] },
+    { name = "packed", label = "a packed schedule", keywords = ["packed", "busy", "full schedule", "see everything", "nonstop"] },
+]
+
+[slot.lodging]
+kind = "categorical"
+description = "Where the traveller sleeps."
+question = "Where would you like to stay at night?"
+values = [
+    { name = "hotel", label = "a hotel", keywords = ["hotel", "hotels", "resort", "resorts"] },
+    { name = "rental", label = "a rented apartment", keywords = ["apartment", "rental", "rented", "airbnb", "flat"] },
+    { name = "hostel", label = "a hostel", keywords = ["hostel", "hostels", "guesthouse", "dorm"] },
+    { name = "camping", label = "camping", keywords = ["camping", "camp", "tent", "campsite", "glamping"] },
+]
+
+[slot.food]
+kind = "categorical"
+description = "The kind of eating the traveller looks forward to."
+question = "What kind of food experience are you hoping for?"
+values = [
+    { name = "street_food", label = "local street food", keywords = ["street food", "local food", "food stalls", "food markets", "night markets"] },
+    { name = "fine_dining", label = "fine dining", keywords = ["fine dining", "fancy restaurants", "michelin", "tasting menu", "gourmet"] },
+    { name = "vegetarian", label = "vegetarian-friendly food", keywords = ["vegetarian", "vegan", "plant-based", "meat-free"] },
+]
+
+[slot.activity]
+kind = "categorical"
+description = "The main thing the traveller wants to spend time doing."
+question = "What would you most like to spend your time doing?"
+values = [
+    { name = "adventure", label = "outdoor adventure", keywords = ["adventure", "outdoor", "outdoors", "hiking", "surfing", "kayaking", "climbing"] },
+    { name = "culture", label = "museums and history", keywords = ["museum", "museums", "history", "historic", "culture", "cultural", "galleries"] },
+    { name = "nightlife", label = "nightlife", keywords = ["nightlife", "bars", "clubs", "clubbing", "partying", "dancing"] },
+    { name = "wellness", label = "spa and wellness", keywords = ["spa", "wellness", "yoga", "massage", "massages", "retreat"] },
+]
+
+[slot.transport]
+kind = "categorical"
+description = "How the traveller gets around at the destination."
+question = "How would you like to get around once you're there?"
+values = [
+    { name = "transit", label = "public transport and walking", keywords = ["public transport", "transit", "train", "trains", "metro", "subway", "bus", "walking"] },
+    { name = "car", label = "a rental car", keywords = ["car", "rental car", "drive", "driving", "road trip"] },
+    { name = "tours", label = "guided tours", keywords = ["guided tour", "guided tours", "tour group", "tour guide", "guide"] },
+]
+
+[slot.budget]
+kind = "ordinal"
+description = "Total spending per day, in US dollars, excluding flights."
+question = "Roughly how much would you like to spend per day, not counting flights?"
+unit = "USD per day"
+edges = [100, 200, 350]
+values = [
+    { name = "low", label = "under $100 a day", keywords = ["under $100", "under 100", "less than $100", "shoestring", "tight budget", "cheap"] },
+    { name = "mid", label = "$100 to $200 a day", keywords = ["$100 to $200", "100 to 200", "mid-range", "moderate budget"] },
+    { name = "high", label = "$200 to $350 a day", keywords = ["$200 to $350", "200 to 350", "comfortable budget"] },
+    { name = "luxury", label = "over $350 a day", keywords = ["over $350", "more than $350", "luxury", "splurge", "no budget limit"] },
+]
+
+[slot.trip_length]
+kind = "ordinal"
+description = "Number of days at the destination."
+question = "How many days would you like the trip to last?"
+unit = "days"
+edges = [4, 7, 10]
+values = [
+    { name = "weekend", label = "a long weekend of 2 or 3 days", keywords = ["weekend", "long weekend", "couple of days", "two days", "three days"] },
+    { name = "short", label = "4 to 6 days", keywords = ["4 to 6 days", "four days", "five days", "six days", "few days"] },
+    { name = "week", label = "about a week", keywords = ["a week", "one week", "about a week", "seven days", "eight days"] },
+    { name = "long", label = "10 days or more", keywords = ["10 days or more", "two weeks", "fortnight", "a month", "ten days"] },
+]

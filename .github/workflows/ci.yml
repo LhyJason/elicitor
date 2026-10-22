@@ -20,3 +20,5 @@ jobs:
       - run: ruff check .
       - run: ruff format --check .
       - run: pytest
+      - run: elicitor make-data data/travel --check
+      - run: elicitor run experiments/m1_no_llm.toml

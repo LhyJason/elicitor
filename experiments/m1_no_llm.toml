@@ -1,0 +1,20 @@
+# M1 suite: every no-LLM arm on the eval personas, answered by the rule oracle (SPEC §17).
+# Run from the repo root:  elicitor run experiments/m1_no_llm.toml
+
+name = "m1_no_llm"
+domain = "travel"
+data_dir = "../data"
+split = "eval"
+seed = 1000
+replicates = 5
+budgets = [3, 5, 8]
+tau = 0.9
+selectors = ["fixed", "random", "max_entropy"]
+updaters = ["rule"]
+
+[simulator]
+kind = "oracle"
+rho = 0.8
+
+[updater.rule]
+rho = 0.8
