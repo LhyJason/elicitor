@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING
 
 from elicitor.answer_model import AnswerModel
 from elicitor.belief import Belief
-from elicitor.questions import KINDS, OPEN, Question, candidates
+from elicitor.questions import CHOICE, KINDS, OPEN, Question, candidates
 
 if TYPE_CHECKING:
     from elicitor.episode import Turn
@@ -62,3 +62,29 @@ class OpenEIGSelector(EIGSelector):
 
     def __init__(self, rho: float | Mapping[str, float] = 0.8) -> None:
         super().__init__(kinds=(OPEN,), rho=rho)
+
+
+class EntropyChoiceSelector:
+    """Heuristic baseline for H2 (SPEC §7, M5): the slot of `max_entropy`, asked as its choice
+    question with the largest analytic EIG (all the options when there are three)."""
+
+    name = "entropy_choice"
+
+    def __init__(self, rho: float | Mapping[str, float] = 0.8) -> None:
+        self.model = AnswerModel(rho)
+
+    def choose(
+        self, belief: Belief, history: Sequence[Turn], rng: random.Random
+    ) -> Question | None:
+        from elicitor.selectors import unasked_slots
+
+        remaining = unasked_slots(belief, history)
+        if not remaining:
+            return None
+        slot = belief.schema.slot(max(remaining, key=belief.entropy))
+        best: tuple[Question, float] | None = None
+        for q in candidates(slot, (CHOICE,)):
+            gain = self.model.eig(belief, q)
+            if best is None or gain > best[1] + TIE:
+                best = (q, gain)
+        return best[0] if best else Question(slot.name)

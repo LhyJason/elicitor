@@ -23,8 +23,8 @@ from pydantic import BaseModel, ConfigDict, Field, create_model, field_validator
 
 from elicitor.schema import Slot
 
-AGENT = "agent"  # roles played by the agent: update, phrase
-USER = "user"  # roles played by the simulated user (and later the judge)
+AGENT = "agent"  # roles played by the agent: update, phrase, imagine
+USER = "user"  # roles played by the simulated user: simulate, backstory (and later the judge)
 
 SCORE_MAX = 10
 
@@ -50,6 +50,10 @@ class PhraseReply(Strict):
 
 class SimulateReply(Strict):
     answer: str = Field(min_length=1, max_length=800)
+
+
+class BackstoryReply(Strict):
+    backstory: str = Field(min_length=20, max_length=600)
 
 
 @functools.cache
@@ -133,7 +137,7 @@ class Role:
     max_tokens: int
 
 
-ROLE_NAMES = ("update", "phrase", "simulate")
+ROLE_NAMES = ("update", "phrase", "simulate", "imagine", "backstory")
 
 
 def build_roles(prompts_dir: str | Path) -> dict[str, Role]:
@@ -165,6 +169,24 @@ def build_roles(prompts_dir: str | Path) -> dict[str, Role]:
             prompt=load_prompt(prompts_dir / "simulate.txt"),
             output=lambda ctx: SimulateReply,
             mock=mock.mock_simulate,
+            temperature=0.8,
+            max_tokens=250,
+        ),
+        "imagine": Role(
+            name="imagine",
+            group=AGENT,
+            prompt=load_prompt(prompts_dir / "imagine.txt"),
+            output=lambda ctx: SimulateReply,
+            mock=mock.mock_imagine,
+            temperature=0.8,
+            max_tokens=150,
+        ),
+        "backstory": Role(
+            name="backstory",
+            group=USER,
+            prompt=load_prompt(prompts_dir / "backstory.txt"),
+            output=lambda ctx: BackstoryReply,
+            mock=mock.mock_backstory,
             temperature=0.8,
             max_tokens=250,
         ),

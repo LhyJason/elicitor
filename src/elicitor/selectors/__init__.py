@@ -16,6 +16,7 @@ from elicitor.belief import Belief
 
 if TYPE_CHECKING:
     from elicitor.episode import Turn
+    from elicitor.llm import LLMClient
     from elicitor.questions import Question
 
 
@@ -33,9 +34,12 @@ def unasked_slots(belief: Belief, history: Sequence[Turn]) -> list[str]:
     return [name for name in belief.schema.slot_names if name not in asked]
 
 
-def make_selector(name: str, **params: Any) -> Selector:
-    """`params` come from the experiment file's `[selector.<name>]` table."""
-    from elicitor.selectors.eig import EIGSelector, OpenEIGSelector
+def make_selector(
+    name: str, client: LLMClient | None = None, seed: int = 0, **params: Any
+) -> Selector:
+    """`params` come from the experiment file's `[selector.<name>]` table. `eig_mc` also needs
+    the LLM client and the replicate seed."""
+    from elicitor.selectors.eig import EIGSelector, EntropyChoiceSelector, OpenEIGSelector
     from elicitor.selectors.entropy import MaxEntropySelector
     from elicitor.selectors.fixed import FixedSelector
     from elicitor.selectors.random import RandomSelector
@@ -46,7 +50,15 @@ def make_selector(name: str, **params: Any) -> Selector:
         "max_entropy": MaxEntropySelector,
         "eig": EIGSelector,
         "eig_open": OpenEIGSelector,
+        "entropy_choice": EntropyChoiceSelector,
     }
+    if name == "eig_mc":
+        from elicitor.selectors.eig_mc import MCEIGSelector
+
+        if client is None:
+            raise ValueError("the eig_mc selector needs an LLM client")
+        return MCEIGSelector(client, seed, **params)
     if name not in registry:
-        raise ValueError(f"unknown selector {name!r}; choose from {sorted(registry)}")
+        choices = sorted([*registry, "eig_mc"])
+        raise ValueError(f"unknown selector {name!r}; choose from {choices}")
     return registry[name](**params)

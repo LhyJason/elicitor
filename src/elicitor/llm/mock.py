@@ -14,7 +14,7 @@ from typing import Any
 from pydantic import BaseModel
 
 from elicitor.answer_model import AnswerModel
-from elicitor.llm.roles import PhraseReply, SimulateReply, update_model
+from elicitor.llm.roles import BackstoryReply, PhraseReply, SimulateReply, update_model
 from elicitor.questions import noise_free_outcome
 from elicitor.simulator.oracle import render_outcome
 from elicitor.updaters.rule import parse_outcomes
@@ -68,3 +68,22 @@ def mock_simulate(ctx: Mapping[str, Any], rng: random.Random) -> BaseModel:
     answer_lc = answer if keep_case else answer[0].lower() + answer[1:]
     text = wrap.format(answer=answer, answer_lc=answer_lc)
     return SimulateReply(answer=text)
+
+
+def mock_imagine(ctx: Mapping[str, Any], rng: random.Random) -> BaseModel:
+    """The imagined user answers like the oracle, with the value it was given (rho = 0.8)."""
+    slot = ctx["slot"]
+    question = ctx["q"]
+    outcome = AnswerModel(MOCK_RHO).sample(slot, question, ctx["value"], rng)
+    return SimulateReply(answer=render_outcome(slot, question, outcome))
+
+
+_JOBS = ("a nurse", "an accountant", "a school teacher", "a software developer", "an electrician")
+_HOBBIES = ("reading", "chess", "gardening", "knitting", "baking bread")
+
+
+def mock_backstory(ctx: Mapping[str, Any], rng: random.Random) -> BaseModel:
+    return BackstoryReply(
+        backstory=f"You are {ctx['age']} and work as {rng.choice(_JOBS)}. "
+        f"In the evenings you enjoy {rng.choice(_HOBBIES)}."
+    )

@@ -10,8 +10,8 @@ from typing import Any
 
 _KEYS = {
     "name", "domain", "data_dir", "split", "seed", "replicates", "budgets", "tau",
-    "selectors", "updaters", "phrasers", "extra_arms", "simulator", "selector", "updater", "llm",
-    "analysis",
+    "selectors", "updaters", "phrasers", "extra_arms", "arm_budgets", "simulator", "selector",
+    "updater", "llm", "analysis",
 }  # fmt: skip
 _ANALYSIS_KEYS = {"comparisons", "metrics", "curve_metrics", "bootstrap"}
 _ARM_PARTS = ("sel", "upd", "phr")
@@ -29,7 +29,7 @@ class Arm:
 
     @property
     def uses_llm(self) -> bool:
-        return self.updater == "llm" or self.phraser == "llm"
+        return self.updater == "llm" or self.phraser == "llm" or self.selector == "eig_mc"
 
     @classmethod
     def parse(cls, name: str) -> Arm:
@@ -57,6 +57,7 @@ class ExperimentConfig:
     updaters: tuple[str, ...]
     phrasers: tuple[str, ...] = ("tpl",)
     extra_arms: tuple[Arm, ...] = ()
+    arm_budgets: dict[str, tuple[int, ...]] = field(default_factory=dict)  # arm name -> budgets
     simulator: dict[str, Any] = field(default_factory=lambda: {"kind": "oracle"})
     selector_params: dict[str, dict[str, Any]] = field(default_factory=dict)
     updater_params: dict[str, dict[str, Any]] = field(default_factory=dict)
@@ -70,6 +71,10 @@ class ExperimentConfig:
         grid = itertools.product(self.selectors, self.updaters, self.phrasers)
         arms = [Arm(s, u, p) for s, u, p in grid]
         return arms + [a for a in self.extra_arms if a not in arms]
+
+    def budgets_for(self, arm: Arm) -> tuple[int, ...]:
+        """The budgets an arm runs at: its `arm_budgets` entry, else all of `budgets`."""
+        return self.arm_budgets.get(arm.name, self.budgets)
 
     @property
     def needs_llm(self) -> bool:
@@ -116,6 +121,10 @@ def load_config(path: str | Path) -> ExperimentConfig:
         updaters=tuple(raw["updaters"]),
         phrasers=tuple(raw.get("phrasers", ["tpl"])),
         extra_arms=tuple(Arm.parse(name) for name in raw.get("extra_arms", [])),
+        arm_budgets={
+            Arm.parse(name).name: tuple(int(k) for k in ks)
+            for name, ks in raw.get("arm_budgets", {}).items()
+        },
         simulator=dict(raw.get("simulator", {"kind": "oracle"})),
         selector_params={k: dict(v) for k, v in raw.get("selector", {}).items()},
         updater_params={k: dict(v) for k, v in raw.get("updater", {}).items()},
@@ -123,8 +132,18 @@ def load_config(path: str | Path) -> ExperimentConfig:
         analysis=dict(raw.get("analysis", {})),
         source=source,
     )
+    _check_arm_budgets(config, path)
     _check_analysis(config, path)
     return config
+
+
+def _check_arm_budgets(config: ExperimentConfig, path: Path) -> None:
+    names = {arm.name for arm in config.arms}
+    for name, ks in config.arm_budgets.items():
+        if name not in names:
+            raise ValueError(f"{path}: arm_budgets names an arm not in the grid: {name}")
+        if not ks or not set(ks) <= set(config.budgets):
+            raise ValueError(f"{path}: arm_budgets for {name} must be a subset of budgets")
 
 
 def _check_analysis(config: ExperimentConfig, path: Path) -> None:

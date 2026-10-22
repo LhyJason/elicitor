@@ -59,6 +59,8 @@ def fingerprint(config: ExperimentConfig, max_personas: int | None) -> str:
         "llm": {k: v for k, v in config.llm.items() if k not in _LLM_TRANSPORT_KEYS},
         "max_personas": max_personas,
     }
+    if config.arm_budgets:  # only when set, so earlier runs keep their fingerprint
+        settings["arm_budgets"] = {k: list(v) for k, v in sorted(config.arm_budgets.items())}
     h = hashlib.sha256(json.dumps(settings, sort_keys=True).encode())
     # Every file of the domain (schema, personas, catalog, backstories, prompts). The repo checks
     # them out with LF endings, so the hash is the same on every platform.
@@ -129,6 +131,7 @@ class RunStore:
             "seed": config.seed,
             "budgets": list(config.budgets),
             "arms": [arm.name for arm in config.arms],
+            "arm_budgets": {arm.name: list(config.budgets_for(arm)) for arm in config.arms},
             "replicates": config.replicates,
             "personas": persona_ids,
             "simulator": config.simulator.get("kind", "oracle"),

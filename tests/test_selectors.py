@@ -65,4 +65,6 @@ def test_max_entropy_picks_most_uncertain_slot(schema):
 
 def test_unknown_selector():
     with pytest.raises(ValueError, match="unknown selector"):
-        make_selector("eig_mc")  # arrives in M5
+        make_selector("eig_bayes")
+    with pytest.raises(ValueError, match="needs an LLM client"):
+        make_selector("eig_mc")

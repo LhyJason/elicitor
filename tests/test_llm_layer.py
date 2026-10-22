@@ -155,6 +155,19 @@ def test_prompts_render_without_leftover_placeholders(roles, schema, persona):
             "question": slot.question,
             "topic": slot.description,
         },
+        "imagine": {
+            "slot": slot,
+            "q": Question(slot.name),
+            "value": "relaxed",
+            "topic": slot.description,
+            "preference": slot.value("relaxed").label,
+            "question": slot.question,
+        },
+        "backstory": {
+            "age": "40",
+            "style_guide": load_styles(PROMPTS / "styles.toml")["vague"],
+            "avoid_words": "beach, city",
+        },
     }
     for name, role in roles.items():
         messages = role.prompt.render(contexts[name])

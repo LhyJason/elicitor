@@ -1,0 +1,15 @@
+### system
+You write short character sketches for a role-play. Reply with JSON only.
+
+### user
+Write the background of a person who will play a customer of a travel agent. Address the
+person as "you". The person is $age years old.
+How the person talks: $style_guide
+
+Write 2 or 3 sentences about who the person is: their work, who they live with, and one
+everyday hobby. Make the hobby fit how they talk.
+- Say nothing about travel, holidays, places, landscapes, weather or seasons, food or diet,
+  accommodation, ways of getting around, money, or time off.
+- Do not use any of these words: $avoid_words.
+- Do not give the person a name.
+Return {"backstory": "..."}.

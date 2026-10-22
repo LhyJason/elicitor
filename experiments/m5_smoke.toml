@@ -1,0 +1,49 @@
+# M5 smoke run (SPEC §15, §17): every candidate arm of the full run on the 12 dev personas, one
+# replicate, on 4 GPUs (two servers per model group). Measures the call rate that projects the
+# full run, and leakage with the real simulator model. The rho table is the assumed M3 one; the
+# full run uses the rho measured by `elicitor calibrate` on this file. Submit from the repo root:
+#   cluster/submit.sh cluster/m5_smoke.sbatch
+
+name = "m5_smoke"
+domain = "travel"
+data_dir = "../data"
+split = "dev"
+seed = 7000
+replicates = 1
+budgets = [3, 5, 8]
+tau = 0.9
+selectors = ["fixed", "random", "max_entropy", "entropy_choice", "eig"]
+updaters = ["rule", "llm"]
+phrasers = ["tpl"]
+extra_arms = ["sel=eig,upd=llm,phr=llm", "sel=eig_mc,upd=llm,phr=tpl"]
+
+[arm_budgets]
+"sel=eig_mc,upd=llm,phr=tpl" = [5]
+
+[simulator]
+kind = "llm"
+
+[selector.eig]
+rho = { open = 0.7, choice = 0.8, yesno = 0.9 }
+
+[selector.entropy_choice]
+rho = { open = 0.7, choice = 0.8, yesno = 0.9 }
+
+[selector.eig_mc]
+rho = { open = 0.7, choice = 0.8, yesno = 0.9 }
+shortlist = 5
+samples = 3
+
+[updater.rule]
+rho = { open = 0.7, choice = 0.8, yesno = 0.9 }
+
+[llm]
+provider = "ollama"
+base_url = "http://127.0.0.1:11434"  # replaced by ELICITOR_SERVERS_AGENT / _USER in the job
+num_ctx = 2048
+think = { agent = false }  # qwen3 thinks unless told not to; llama3.3 has no thinking mode
+timeout = 600
+
+[llm.models]
+agent = "qwen3:32b"
+user = "llama3.3:70b"

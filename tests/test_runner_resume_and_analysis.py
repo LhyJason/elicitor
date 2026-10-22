@@ -63,7 +63,9 @@ def test_interrupted_run_resumes_to_the_same_bytes(tmp_path, monkeypatch):
     assert len(store.finished_cells()) == 2
     assert not (tmp_path / "split" / "episodes.jsonl").exists()
     live = store.read_live()
-    assert live["episodes"] == 1 and "node lost" in live["error"]
+    # One task of the third cell had finished before the second one failed.
+    assert "node lost" in live["error"]
+    assert [entry["episodes"] for entry in live["cells"].values()] == [1]
     health = check_health(tmp_path / "split")
     assert not health.ok and "cells 2/" in health.text()
 

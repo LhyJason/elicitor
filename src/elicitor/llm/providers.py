@@ -7,11 +7,16 @@ not parse or retry; the client does that. Transport problems raise `TransportErr
 - `openai_compatible`: any server with an OpenAI-style `/v1/chat/completions` (vLLM, llama.cpp,
   Ollama's own compatibility endpoint).
 - `mock`: no server; calls the role's mock function.
+
+`RoutedProvider` spreads requests over several servers of one provider kind: each request goes
+to a server of its role's model group, the one with the fewest requests in flight (SPEC §14, M5).
 """
 
 from __future__ import annotations
 
 import json
+import threading
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Protocol
 
@@ -76,9 +81,11 @@ class OllamaProvider:
         base_url: str = "http://127.0.0.1:11434",
         timeout: float = 120.0,
         num_ctx: int = 4096,
-        think: bool | None = False,
+        think: bool | Mapping[str, bool] | None = False,
         transport: httpx.BaseTransport | None = None,
     ):
+        """`think` is sent as given, or looked up by the role's model group when it is a table
+        (a group not in the table gets no `think` field: models without a thinking mode)."""
         self.base_url = base_url.rstrip("/")
         self.num_ctx = num_ctx
         self.think = think
@@ -98,8 +105,11 @@ class OllamaProvider:
                 "num_ctx": self.num_ctx,
             },
         }
-        if self.think is not None:
-            payload["think"] = self.think
+        think = self.think
+        if isinstance(think, Mapping):
+            think = think.get(request.role.group)
+        if think is not None:
+            payload["think"] = think
         return payload
 
     def complete(self, request: Request) -> Completion:
@@ -163,6 +173,38 @@ class MockProvider:
         rng = derive_rng("mock", request.role.name, request.seed)
         reply = request.role.mock(request.context, rng)
         return Completion(text=reply.model_dump_json(by_alias=True))
+
+
+class RoutedProvider:
+    """Several servers per model group; `name` is the servers' provider name, so cache keys do
+    not depend on which server answered."""
+
+    def __init__(self, pools: Mapping[str, Sequence[Provider]]):
+        if not pools or any(not servers for servers in pools.values()):
+            raise ValueError("every model group needs at least one server")
+        names = {server.name for servers in pools.values() for server in servers}
+        if len(names) != 1:
+            raise ValueError(f"all servers must be of one provider kind, got {sorted(names)}")
+        self.name = names.pop()
+        self.pools = {group: list(servers) for group, servers in pools.items()}
+        self._lock = threading.Lock()
+        self.in_flight = {group: [0] * len(servers) for group, servers in self.pools.items()}
+        self.sent = {group: [0] * len(servers) for group, servers in self.pools.items()}
+
+    def complete(self, request: Request) -> Completion:
+        group = request.role.group
+        if group not in self.pools:
+            raise ValueError(f"no server for model group {group!r}")
+        with self._lock:
+            loads = self.in_flight[group]
+            index = loads.index(min(loads))  # ties go to list order
+            loads[index] += 1
+            self.sent[group][index] += 1
+        try:
+            return self.pools[group][index].complete(request)
+        finally:
+            with self._lock:
+                loads[index] -= 1
 
 
 def make_provider(name: str, **params: Any) -> Provider:

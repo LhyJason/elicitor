@@ -3,14 +3,20 @@
 `call` tries up to `max_attempts` times; attempt i sends seed + i, so a retry at temperature 0 is
 not a copy of the failed reply. Only validated replies are cached. Transport errors are retried
 with a short back-off and then raised, which stops the run (SPEC §14, M2 details).
+
+The client is thread-safe (SPEC §14, M5 details). Identical requests are single-flight: while one
+is in flight, another with the same cache key waits for its reply. Statistics go to the calling
+thread's current tally, which `track()` replaces for the length of a task.
 """
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
+import threading
 import time
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
@@ -18,7 +24,13 @@ from typing import Any
 from pydantic import BaseModel, ValidationError
 
 from elicitor.llm.cache import ReplyCache, cache_key
-from elicitor.llm.providers import Provider, Request, TransportError, make_provider
+from elicitor.llm.providers import (
+    Provider,
+    Request,
+    RoutedProvider,
+    TransportError,
+    make_provider,
+)
 from elicitor.llm.roles import ROLE_NAMES, Role, build_roles
 
 
@@ -81,7 +93,32 @@ class LLMClient:
         self.transport_retries = transport_retries
         self.retry_wait_s = retry_wait_s
         self.role_overrides = {k: dict(v) for k, v in (role_overrides or {}).items()}
-        self.stats = {name: RoleStats() for name in self.roles}
+        self._default_stats = self.new_stats()
+        self._local = threading.local()
+        self._flight_lock = threading.Lock()
+        self._in_flight: dict[str, threading.Event] = {}
+
+    # ------------------------------------------------------------ statistics
+
+    def new_stats(self) -> dict[str, RoleStats]:
+        return {name: RoleStats() for name in self.roles}
+
+    @property
+    def stats(self) -> dict[str, RoleStats]:
+        """The calling thread's tally (the client-wide one outside `track`)."""
+        return getattr(self._local, "stats", None) or self._default_stats
+
+    @contextlib.contextmanager
+    def track(self) -> Iterator[dict[str, RoleStats]]:
+        """Count this thread's calls in a fresh tally while the block runs."""
+        previous = getattr(self._local, "stats", None)
+        self._local.stats = tally = self.new_stats()
+        try:
+            yield tally
+        finally:
+            self._local.stats = previous
+
+    # ------------------------------------------------------------ calls
 
     def call(self, role_name: str, context: Mapping[str, Any], seed: int = 0) -> BaseModel:
         role = self.roles[role_name]
@@ -116,31 +153,67 @@ class LLMClient:
                 max_tokens=max_tokens,
                 seed=seed + attempt,
             )
-            cached = self.cache.get(key) if self.cache is not None else None
+            if self.cache is None:
+                reply = self._attempt(request, output, None, stats)
+            else:
+                reply = self._attempt_cached(request, output, key, stats)
+            if reply is not None:
+                return reply
+
+        stats.failed_calls += 1
+        raise LLMParseError(f"role {role_name}: no valid reply in {self.max_attempts} attempts")
+
+    def _attempt_cached(
+        self, request: Request, output: type[BaseModel], key: str, stats: RoleStats
+    ) -> BaseModel | None:
+        """One attempt through the cache; waits instead of sending when the same key is in
+        flight, and then reads the reply it left (or none, if it did not validate)."""
+        assert self.cache is not None
+        while True:
+            cached = self.cache.get(key)
             if cached is not None:
                 reply = parse_reply(output, cached)
                 if reply is not None:
                     stats.cache_hits += 1
                     return reply
+            with self._flight_lock:
+                event = self._in_flight.get(key)
+                leader = event is None
+                if leader:
+                    event = self._in_flight[key] = threading.Event()
+            if leader:
+                break
+            event.wait()
+            cached = self.cache.get(key)
+            if cached is None:
+                # The leader's reply did not validate (or it hit a transport error): this
+                # attempt failed the same way, without a request of its own.
+                return None
+        try:
+            return self._attempt(request, output, key, stats)
+        finally:
+            with self._flight_lock:
+                del self._in_flight[key]
+            event.set()
 
-            completion = self._send(request, stats)
-            reply = parse_reply(output, completion.text)
-            if reply is None:
-                stats.parse_failures += 1
-                continue
-            if self.cache is not None:
-                self.cache.put(
-                    key,
-                    role=role_name,
-                    model=model_name,
-                    text=completion.text,
-                    prompt_tokens=completion.prompt_tokens,
-                    completion_tokens=completion.completion_tokens,
-                )
-            return reply
-
-        stats.failed_calls += 1
-        raise LLMParseError(f"role {role_name}: no valid reply in {self.max_attempts} attempts")
+    def _attempt(
+        self, request: Request, output: type[BaseModel], key: str | None, stats: RoleStats
+    ) -> BaseModel | None:
+        completion = self._send(request, stats)
+        reply = parse_reply(output, completion.text)
+        if reply is None:
+            stats.parse_failures += 1
+            return None
+        if self.cache is not None and key is not None:
+            self.cache.put(
+                key,
+                role=request.role.name,
+                model=request.model,
+                text=completion.text,
+                prompt_tokens=completion.prompt_tokens,
+                completion_tokens=completion.completion_tokens,
+            )
+        return reply
 
     def _send(self, request: Request, stats: RoleStats):
         for retry in range(self.transport_retries + 1):
@@ -164,16 +237,19 @@ class LLMClient:
     # ------------------------------------------------------------ reporting
 
     def reset_stats(self) -> None:
-        """Start counting from zero (the runner keeps statistics per cell)."""
-        self.stats = {name: RoleStats() for name in self.roles}
+        """Start the calling thread's tally from zero."""
+        tally = self.stats
+        for name in tally:
+            tally[name] = RoleStats()
 
-    def stats_dict(self) -> dict[str, Any]:
+    def stats_dict(self, tally: Mapping[str, RoleStats] | None = None) -> dict[str, Any]:
+        tally = self.stats if tally is None else tally
         return {
             "provider": self.provider.name,
             "models": self.models,
             "roles": {
                 name: {k: round(v, 3) if isinstance(v, float) else v for k, v in asdict(s).items()}
-                for name, s in self.stats.items()
+                for name, s in tally.items()
                 if s.calls
             },
         }
@@ -199,6 +275,7 @@ class LLMClient:
 
 
 BASE_URL_ENV = "ELICITOR_BASE_URL"
+SERVERS_ENV = {"agent": "ELICITOR_SERVERS_AGENT", "user": "ELICITOR_SERVERS_USER"}
 _CONFIG_KEYS = {
     "provider", "models", "base_url", "timeout", "num_ctx", "think", "api_key", "cache",
     "max_attempts", "roles",
@@ -210,14 +287,38 @@ _PROVIDER_KEYS = {
 }
 
 
+def server_urls(base_url: Any) -> dict[str, list[str]] | None:
+    """Per-group server lists from `base_url` and the environment; None for a single server.
+
+    `base_url` is one URL or a table {group: URL or [URLs]}; ELICITOR_SERVERS_<GROUP> (comma
+    separated) replaces a group's list.
+    """
+    table = dict(base_url) if isinstance(base_url, Mapping) else {}
+    for group, var in SERVERS_ENV.items():
+        if os.environ.get(var):
+            table[group] = os.environ[var]
+    if not table:
+        return None
+    if set(table) != set(SERVERS_ENV):
+        raise ValueError(f"[llm] base_url table needs exactly the groups {sorted(SERVERS_ENV)}")
+    urls = {}
+    for group, value in table.items():
+        items = value.split(",") if isinstance(value, str) else list(value)
+        urls[group] = [u.strip() for u in items if u.strip()]
+        if not urls[group]:
+            raise ValueError(f"no server URL for model group {group!r}")
+    return urls
+
+
 def build_client(
     config: Mapping[str, Any], prompts_dir: str | Path, default_cache: str | Path | None
 ) -> LLMClient:
     """Build a client from an experiment file's `[llm]` table.
 
     `cache = false` turns the cache off; a path string overrides `default_cache`. The environment
-    variable ELICITOR_BASE_URL, when set, overrides `base_url` (a cluster job sets it to the port
-    its server picked).
+    variable ELICITOR_BASE_URL, when set, overrides a single `base_url` (a cluster job sets it to
+    the port its server picked); ELICITOR_SERVERS_AGENT / _USER give several servers per model
+    group (SPEC §14, M5 details).
     """
     unknown = set(config) - _CONFIG_KEYS
     if unknown:
@@ -226,9 +327,23 @@ def build_client(
     if provider_name not in _PROVIDER_KEYS:
         raise ValueError(f"unknown LLM provider {provider_name!r}")
     params = {k: config[k] for k in _PROVIDER_KEYS[provider_name] if k in config}
-    if "base_url" in _PROVIDER_KEYS[provider_name] and os.environ.get(BASE_URL_ENV):
-        params["base_url"] = os.environ[BASE_URL_ENV]
-    provider = make_provider(provider_name, **params)
+    provider: Provider
+    if "base_url" in _PROVIDER_KEYS[provider_name]:
+        pools = server_urls(params.get("base_url"))
+        if pools is not None:
+            provider = RoutedProvider(
+                {
+                    group: [make_provider(provider_name, **{**params, "base_url": url})
+                            for url in urls]
+                    for group, urls in pools.items()
+                }
+            )  # fmt: skip
+        else:
+            if os.environ.get(BASE_URL_ENV):
+                params["base_url"] = os.environ[BASE_URL_ENV]
+            provider = make_provider(provider_name, **params)
+    else:
+        provider = make_provider(provider_name, **params)
 
     default_model = "mock" if provider_name == "mock" else None
     models = dict(config.get("models", {}))

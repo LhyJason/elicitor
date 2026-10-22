@@ -82,36 +82,41 @@ def check_health(run_dir: str | Path, now: float | None = None) -> Health:
     cells = [cell_id(arm, r) for arm in state["arms"] for r in range(state["replicates"])]
     done = [c for c in cells if store.is_done(c)]
     stats = {c: store.read_cell_stats(c) or {} for c in done}
-    per_cell = len(state["budgets"]) * len(state["personas"])
+    arm_budgets = state.get("arm_budgets", {})
+    total = sum(
+        len(arm_budgets.get(arm, state["budgets"])) * len(state["personas"]) * state["replicates"]
+        for arm in state["arms"]
+    )
     episodes = sum(s.get("episodes", 0) for s in stats.values())
 
     live = store.read_live()
-    in_progress = live is not None and live.get("cell") in cells and live["cell"] not in done
-    if in_progress:
-        episodes += live.get("episodes", 0)
+    running = {
+        c: entry for c, entry in ((live or {}).get("cells") or {}).items()
+        if c in cells and c not in done
+    }  # fmt: skip
+    episodes += sum(entry.get("episodes", 0) for entry in running.values())
 
     health.lines.append(f"run {state['name']} in {run_dir}")
-    health.lines.append(
-        f"cells {len(done)}/{len(cells)}, episodes {episodes}/{len(cells) * per_cell}"
-    )
+    health.lines.append(f"cells {len(done)}/{len(cells)}, episodes {episodes}/{total}")
     seconds = [s["seconds"] for s in stats.values() if "seconds" in s]
     if seconds and len(done) < len(cells):
         mean = sum(seconds) / len(seconds)
-        eta = mean * (len(cells) - len(done))
-        health.lines.append(f"mean {mean:.1f} s per finished cell, about {eta / 3600:.2f} h left")
+        health.lines.append(f"mean {mean:.1f} s per finished cell (cells may run in parallel)")
     if live is not None:
         age = (now if now is not None else time.time()) - live.get("updated", 0)
-        status = "in progress" if in_progress else "last cell"
         health.lines.append(
-            f"live: {live.get('cell')} ({status}), {live.get('episodes')}/"
-            f"{live.get('episodes_per_cell')} episodes, updated {age:.0f} s ago"
+            f"live: {len(running)} cells in progress, updated {age:.0f} s ago, "
+            f"{live.get('seconds', 0) / 3600:.2f} h since this job's runner started"
         )
+        for c, entry in running.items():
+            health.lines.append(
+                f"  {c}: {entry.get('episodes')}/{entry.get('episodes_per_cell')} episodes"
+            )
         if live.get("error"):
-            health.problems.append(f"cell {live['cell']} stopped: {live['error']}")
+            health.problems.append(f"stopped: {live['error']}")
 
     parts = [s.get("llm") for s in stats.values()]
-    if in_progress:
-        parts.append(live.get("llm"))
+    parts += [entry.get("llm") for entry in running.values()]
     llm = sum_stats(parts)
     if llm is None:
         health.lines.append("no LLM calls")

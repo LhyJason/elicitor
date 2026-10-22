@@ -1,7 +1,7 @@
 """Command-line entry point.
 
 Subcommands (run, analyze, health, demo) are added milestone by milestone; see docs/SPEC.md §16.
-M1 added `run` and `make-data`, M4 `analyze` and `health`.
+M1 added `run` and `make-data`, M4 `analyze` and `health`, M5 `calibrate` and `make-backstories`.
 """
 
 import argparse
@@ -27,6 +27,9 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument(
         "--fresh", action="store_true", help="discard finished cells instead of resuming"
     )
+    run.add_argument(
+        "--workers", type=int, default=1, help="threads running (cell, persona) tasks (default 1)"
+    )
 
     analyze = sub.add_parser("analyze", help="paired statistics, tables and figures of a run")
     analyze.add_argument("run_dir", type=Path, help="run folder written by `elicitor run`")
@@ -41,6 +44,20 @@ def build_parser() -> argparse.ArgumentParser:
 
     health = sub.add_parser("health", help="progress and LLM failure rates of a run (also live)")
     health.add_argument("run_dir", type=Path, help="run folder written by `elicitor run`")
+
+    calib = sub.add_parser("calibrate", help="measure rho per question type on the dev personas")
+    calib.add_argument("config", type=Path, help="experiment TOML file (simulator and [llm])")
+    calib.add_argument(
+        "--out", type=Path, help="output folder (default: results/<name>_calibration)"
+    )
+    calib.add_argument("--workers", type=int, default=1, help="threads asking questions")
+
+    stories = sub.add_parser("make-backstories", help="write the frozen persona backstories")
+    stories.add_argument("config", type=Path, help="experiment TOML file ([llm] user model)")
+    stories.add_argument("--workers", type=int, default=1, help="threads writing backstories")
+    stories.add_argument(
+        "--force", action="store_true", help="overwrite an existing backstories file"
+    )
 
     data = sub.add_parser("make-data", help="regenerate frozen personas and catalog")
     data.add_argument("domain_dir", type=Path, help="domain folder, e.g. data/travel")
@@ -60,7 +77,12 @@ def cmd_run(args: argparse.Namespace) -> int:
     out = args.out or Path("results") / config.name
     try:
         rows = run_experiment(
-            config, out, max_personas=args.max_personas, progress=print, fresh=args.fresh
+            config,
+            out,
+            max_personas=args.max_personas,
+            progress=print,
+            fresh=args.fresh,
+            workers=args.workers,
         )
     except FingerprintMismatch as exc:
         print(f"error: {exc}", file=sys.stderr)
@@ -105,6 +127,48 @@ def cmd_health(args: argparse.Namespace) -> int:
     return 0 if health.ok else 1
 
 
+def cmd_calibrate(args: argparse.Namespace) -> int:
+    from elicitor.calibration import calibrate
+    from elicitor.experiments.config import load_config
+
+    config = load_config(args.config)
+    out = args.out or Path("results") / f"{config.name}_calibration"
+    calibrate(config, out, workers=args.workers, progress=print)
+    print(f"wrote {out / 'calibration.json'} and {out / 'answers.jsonl'}")
+    return 0
+
+
+def cmd_make_backstories(args: argparse.Namespace) -> int:
+    from elicitor.backstories import write_backstories
+    from elicitor.experiments.config import load_config
+    from elicitor.llm import build_client
+    from elicitor.personas import BACKSTORIES, load_personas
+    from elicitor.schema import load_schema
+    from elicitor.simulator.llm import load_styles
+
+    config = load_config(args.config)
+    path = config.personas_path.with_name(BACKSTORIES)
+    if path.exists() and not args.force:
+        print(f"error: {path} exists and is frozen (SPEC §4); pass --force", file=sys.stderr)
+        return 2
+    cache = Path("results") / "backstories_cache.sqlite"
+    client = build_client(config.llm, config.prompts_dir, cache)
+    try:
+        stories = write_backstories(
+            client,
+            load_schema(config.schema_path),
+            load_personas(config.personas_path),
+            load_styles(config.prompts_dir / "styles.toml"),
+            path,
+            workers=args.workers,
+            progress=print,
+        )
+        print(client.stats_table())
+    finally:
+        client.close()
+    return 1 if any(s.flagged for s in stories) else 0
+
+
 def cmd_make_data(args: argparse.Namespace) -> int:
     from elicitor.datagen import check_data, write_data
 
@@ -129,5 +193,9 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_analyze(args)
     if args.command == "health":
         return cmd_health(args)
+    if args.command == "calibrate":
+        return cmd_calibrate(args)
+    if args.command == "make-backstories":
+        return cmd_make_backstories(args)
     parser.print_help()
     return 0

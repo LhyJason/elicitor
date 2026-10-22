@@ -29,6 +29,9 @@ jobs:
       - run: elicitor health results/m3_mock
       - run: elicitor analyze results/m3_mock
       - run: elicitor analyze results/m3_eig --no-figures
+      - run: elicitor run experiments/m5_mock.toml --workers 4
+      - run: elicitor health results/m5_mock
+      - run: elicitor calibrate experiments/m3_eig.toml
       - name: analysis refuses to publish mock output
         shell: bash
         run: "! elicitor analyze results/m3_mock --publish"
