@@ -35,8 +35,8 @@ values = [
 
 [slot.setting]
 kind = "categorical"
-description = "The type of place the traveller wants to stay in."
-question = "What kind of place would you like to go to?"
+description = "The surroundings the traveller wants at the destination: landscape or town, not the accommodation."
+question = "What kind of surroundings would you like at your destination?"
 values = [
     { name = "beach", label = "somewhere by the beach", keywords = ["beach", "beaches", "coast", "coastal", "seaside", "ocean"] },
     { name = "city", label = "a big city", keywords = ["city", "cities", "urban", "downtown", "metropolis"] },
@@ -56,8 +56,8 @@ values = [
 
 [slot.lodging]
 kind = "categorical"
-description = "Where the traveller sleeps."
-question = "Where would you like to stay at night?"
+description = "The type of accommodation the traveller sleeps in, not the area it is in."
+question = "What type of accommodation would you like to stay in?"
 values = [
     { name = "hotel", label = "a hotel", keywords = ["hotel", "hotels", "resort", "resorts"] },
     { name = "rental", label = "a rented apartment", keywords = ["apartment", "rental", "rented", "airbnb", "flat"] },

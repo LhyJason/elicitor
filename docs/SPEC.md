@@ -200,6 +200,17 @@ Answers a question in character, using only the persona; must not volunteer the 
 > simulator prompt on the dev personas first (the prompt also names the topic asked, forbids
 > other list items even in stories or side remarks, and the rambling style draws its stories from
 > outside the trip preferences), rerun the smoke, and apply the 10 % rule of §6 to the new rate.
+>
+> *Dev smoke 2 (10-22, tuned prompt, same setup):* 0 errors again; keyword leakage 26 / 180
+> answers (14.4 %). Reading the 19 distinct flagged answers: about 7 are real volunteering
+> ("I'd like to camp somewhere by the beach" when asked about lodging), 4 answer the wrong topic,
+> and about 6 are keyword false hits ("busy" in a remark about work; "rental car" matching the
+> lodging keyword "rental"). The wrong-topic answers come from the schema text: `setting` was
+> described as "the type of place the traveller wants to stay in" and `lodging` asked "where would
+> you like to stay at night?", which overlap. *Decision (user, 10-22):* fix both texts, run smoke
+> 3, and judge the 10 % rule on the hand-checked rate: flagged answers read and classified as real
+> leaks (volunteering or wrong topic) or false hits, counted per answer like the keyword rate,
+> which is reported beside it.
 
 ## 10. Recommendation and evaluation target
 
