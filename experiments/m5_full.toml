@@ -1,0 +1,75 @@
+# M5 full run (SPEC §1, §13, Q13): the frozen grid on the 48 eval personas, 5 replicates, one
+# job of at most 12 h on 4 GPUs. rho per question type was measured on the dev personas by
+# `elicitor calibrate experiments/m5_smoke.toml` (SPEC §7) and frozen: the selectors use the LLM
+# updater's estimate, the rule updater its own. Submit from the repo root:
+#   cluster/submit.sh cluster/full.sbatch
+
+name = "m5_full"
+domain = "travel"
+data_dir = "../data"
+split = "eval"
+seed = 8000
+replicates = 5
+budgets = [3, 5, 8]
+tau = 0.9
+selectors = ["fixed", "random", "max_entropy", "entropy_choice", "eig"]
+updaters = ["rule", "llm"]
+phrasers = ["tpl"]
+extra_arms = ["sel=eig,upd=llm,phr=llm", "sel=eig_mc,upd=llm,phr=tpl"]
+
+[arm_budgets]
+"sel=eig_mc,upd=llm,phr=tpl" = [5]
+
+[simulator]
+kind = "llm"
+
+[selector.eig]
+rho = { open = 0.99, choice = 0.97, yesno = 0.85 }
+
+[selector.entropy_choice]
+rho = { open = 0.99, choice = 0.97, yesno = 0.85 }
+
+[selector.eig_mc]
+rho = { open = 0.99, choice = 0.97, yesno = 0.85 }
+shortlist = 5
+samples = 3
+
+[updater.rule]
+rho = { open = 0.79, choice = 0.83, yesno = 0.64 }
+
+[llm]
+provider = "ollama"
+base_url = "http://127.0.0.1:11434"  # replaced by ELICITOR_SERVERS_AGENT / _USER in the job
+num_ctx = 2048
+think = { agent = false }  # qwen3 thinks unless told not to; llama3.3 has no thinking mode
+timeout = 600
+
+[llm.models]
+agent = "qwen3:32b"
+user = "llama3.3:latest"  # the 70B Q4_K_M (42.5 GB); the shared model folder has no :70b tag
+
+# Frozen hypotheses (SPEC Q13). One Holm family per metric over every comparison and budget.
+[analysis]
+metrics = ["mass_on_truth", "map_accuracy", "log_loss", "regret", "hit@1", "violations", "map_auc"]
+curve_metrics = ["mass_on_truth", "map_accuracy", "regret"]
+comparisons = [
+    # H1: principled selection beats fixed order and random order
+    ["sel=eig,upd=llm,phr=tpl", "sel=fixed,upd=llm,phr=tpl"],
+    ["sel=eig,upd=llm,phr=tpl", "sel=random,upd=llm,phr=tpl"],
+    ["sel=eig,upd=rule,phr=tpl", "sel=fixed,upd=rule,phr=tpl"],
+    ["sel=eig,upd=rule,phr=tpl", "sel=random,upd=rule,phr=tpl"],
+    # H2: with the measured rho, EIG and max-entropy ask (nearly) the same questions
+    ["sel=eig,upd=llm,phr=tpl", "sel=max_entropy,upd=llm,phr=tpl"],
+    ["sel=eig,upd=rule,phr=tpl", "sel=max_entropy,upd=rule,phr=tpl"],
+    ["sel=entropy_choice,upd=llm,phr=tpl", "sel=max_entropy,upd=llm,phr=tpl"],
+    ["sel=entropy_choice,upd=rule,phr=tpl", "sel=max_entropy,upd=rule,phr=tpl"],
+    ["sel=eig_mc,upd=llm,phr=tpl", "sel=eig,upd=llm,phr=tpl"],
+    # H3: the LLM updater beats the rule updater, for every selector
+    ["sel=fixed,upd=llm,phr=tpl", "sel=fixed,upd=rule,phr=tpl"],
+    ["sel=random,upd=llm,phr=tpl", "sel=random,upd=rule,phr=tpl"],
+    ["sel=max_entropy,upd=llm,phr=tpl", "sel=max_entropy,upd=rule,phr=tpl"],
+    ["sel=entropy_choice,upd=llm,phr=tpl", "sel=entropy_choice,upd=rule,phr=tpl"],
+    ["sel=eig,upd=llm,phr=tpl", "sel=eig,upd=rule,phr=tpl"],
+    # Phrasing ablation (Q9): LLM wording of the eig + llm arm
+    ["sel=eig,upd=llm,phr=llm", "sel=eig,upd=llm,phr=tpl"],
+]
