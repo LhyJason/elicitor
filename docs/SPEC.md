@@ -135,6 +135,7 @@ what was parsed. The question text is passed because with LLM phrasing (§8) the
 > score of 0 never rules a value out, and $\beta = 1$ by default. Temperature 0. An empty answer
 > skips the call. *Unasked slots:* scored only if the leakage rate (§9) measured with the LLM
 > simulator on the dev personas exceeds 10 % of answers; otherwise v1 scores the asked slot only.
+> *Settled in M2 (dev smoke 3, §9): 3.9 % hand-checked, 8.9 % by keyword, so the asked slot only.*
 
 ## 7. Questions and selection policies
 
@@ -211,6 +212,14 @@ Answers a question in character, using only the persona; must not volunteer the 
 > 3, and judge the 10 % rule on the hand-checked rate: flagged answers read and classified as real
 > leaks (volunteering or wrong topic) or false hits, counted per answer like the keyword rate,
 > which is reported beside it.
+>
+> *Dev smoke 3 (10-22, fixed slot texts, same setup):* 0 errors, 0 parse failures, 0 failed
+> calls (360 calls, 625 s). Keyword leakage 16 / 180 answers (8.9 %). Of these, 7 are real leaks
+> when borderline cases count as real ("as long as the weather is cold and it's winter" when asked
+> about the setting) and 9 are false hits ("the hike I did last weekend", "walking her more");
+> none answers the wrong topic. Hand-checked rate 7 / 180 = 3.9 %. **Settled:** below 10 %, so
+> the v1 LLM updater scores the asked slot only (§6). Leakage is measured again in M5 with the
+> real simulator model and reported with the results.
 
 ## 10. Recommendation and evaluation target
 
@@ -363,7 +372,7 @@ results_summary/ committed tables
 |---|---|---|
 | M0 | repo, pyproject, CI, empty package | CI green |
 | M1 | schema, personas, belief, rule updater, fixed/random/entropy selectors, oracle simulator, catalog, episode loop; also template phrasing, belief metrics and a minimal `run` (no resume) so the suite can run | full suite runs with no LLM; belief and entropy unit tests pass |
-| M2 | LLM layer (client, cache, mock, Ollama), LLM updater, phrasing, LLM simulator | mock suite in CI; smoke run on a real model (dev personas) with 0 transport errors and 0 failed calls; parse failures and leakage reported. Changed 10-22: Ollama is not installed on the development laptop, so the M2 smoke runs as a one-GPU cluster job with qwen3:32b for both model groups (the agent model of Q14, already on the cluster; llama3.3:70b is first tested in M5). `experiments/m2_smoke_ollama.toml` (qwen3:4b) stays as the local option |
+| M2 | LLM layer (client, cache, mock, Ollama), LLM updater, phrasing, LLM simulator | mock suite in CI; smoke run on a real model (dev personas) with 0 transport errors and 0 failed calls; parse failures and leakage reported. Changed 10-22: Ollama is not installed on the development laptop, so the M2 smoke runs as a one-GPU cluster job with qwen3:32b for both model groups (the agent model of Q14, already on the cluster; llama3.3:70b is first tested in M5). `experiments/m2_smoke_ollama.toml` (qwen3:4b) stays as the local option. **Done 10-22:** three smoke jobs, all with 0 errors, 0 parse failures and 0 failed calls; leakage settled after two prompt and text fixes (§9) |
 | M3 | EIG selector + question types, recommender, metrics | EIG unit tests (EIG = H for noise-free open questions; EIG ≤ 1 bit for yes/no) |
 | M4 | runner, run-health, analysis, figures | analysis runs on mock output and refuses to write committed tables from it |
 | M5 | cluster jobs (≤ 4 A40), smoke run to measure the call rate, full run | all cells finished within the §1 time limit; error rate 0; parse failures < 1 % per role |
