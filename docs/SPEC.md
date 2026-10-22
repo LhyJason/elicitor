@@ -118,6 +118,11 @@ A persona = ground-truth value for every slot + an answer style + a short backst
 > slot value is drawn again with the next seed, up to 5 draws; the command reports any that stay
 > flagged. The file is then committed and never regenerated: the command refuses to overwrite it
 > without `--force`.
+>
+> *Written 10-22 (M5 smoke job, llama3.3):* 60 backstories, 61 calls, one redrawn, none still
+> flagged; SHA-256 `c7ba7629…`. They are bland but on topic (jobs, household, a hobby; gardening
+> and accounting recur). One defect is kept as frozen: p006's last sentence is cut off and ends
+> in a stray non-ASCII character. p006 is a dev persona, so no reported number depends on it.
 
 ## 5. Belief model
 
@@ -236,6 +241,18 @@ correlated (Q5 B). The experiment must include at least one of these, or the EIG
 > updater takes its own $\hat\rho$ (its noise model is a statement about how well it reads).
 > The calibration answers are written out, so leakage can be read on them too.
 >
+> *Measured (M5 smoke job, 10-22, llama3.3 simulator, 540 answers):*
+>
+> | type | ρ̂ LLM updater [95 % CI] | ρ̂ rule updater [95 % CI] |
+> |---|---|---|
+> | open | 0.988 [0.970, 1.000] | 0.792 [0.727, 0.859] |
+> | choice | 0.974 [0.954, 0.990] | 0.827 [0.748, 0.899] |
+> | yes/no | 0.847 [0.755, 0.935] | 0.643 [0.481, 0.778] |
+>
+> **Frozen** (rounded to two decimals): selectors 0.99 / 0.97 / 0.85, rule updater
+> 0.79 / 0.83 / 0.64. The M3 assumption (closed questions more reliable) does not hold for this
+> simulator: yes/no answers are the least reliable (a "would X suit you?" invites a hedged yes).
+>
 > *`eig_mc` in detail (M5).* Shortlist: the L = 5 candidates with the largest analytic EIG
 > (frozen ρ). For each shortlisted question $q$ on slot $s$ and each value $v$ with $b_s(v) > 0$,
 > the agent imagines S = 3 answers of a user whose preference on $s$ is $v$ (role `imagine`,
@@ -329,6 +346,13 @@ Answers a question in character, using only the persona; must not volunteer the 
 > really.", "Yes, that would suit me.", "No, not really."). The mock simulator does the same with
 > ρ = 0.8 and its style wording. The LLM simulator's prompt is unchanged: the question text
 > carries the type.
+>
+> *M5, llama3.3 as simulator (calibration answers, 12 dev personas, 540 answers):* keyword
+> leakage 44 / 540 (8.2 %). Read by hand: 10 are real or borderline volunteering (camping
+> lovers who add "being outdoors", a "relax and unwind" when asked about the setting), 1.9 %;
+> the other 34 are keyword false hits, mostly "rental car" matching the lodging keyword "rental"
+> and "busy" / "relax" in asides. Well under 10 %, so the M2 decision (score the asked slot only)
+> stands. The smoke run's keyword leakage per arm is 0–14 % of answers (§17, M5).
 
 ## 10. Recommendation and evaluation target
 
@@ -426,7 +450,7 @@ answer (common random numbers), which tightens the paired comparisons in §13.
 >   writes nothing. The oracle suites qualify (their noise is known exactly, Q11); mock runs never
 >   do.
 
-> **Decision Q13 — hypotheses** (draft; freeze before the full run):
+> **Decision Q13 — hypotheses** (draft until M5; frozen below):
 > H1 `eig` > `fixed` and `random` on posterior mass on truth at budget K.
 > H2 `eig` > `max_entropy` only in settings where they can differ (§7).
 > H3 the LLM updater beats the rule updater, and the gap grows with vaguer answer styles.
@@ -436,6 +460,29 @@ answer (common random numbers), which tightens the paired comparisons in §13.
 > questions, most listing every option of a slot, so its gain over `max_entropy` comes from the
 > assumed reliability gap. Whether `eig_open` or an all-options-choice arm joins the main grid is
 > decided here, with the ρ per type measured in M5, before the full run.
+>
+> **Frozen (M5, 10-22, before the full run).** The measured ρ (§7) reverses the M3 assumption:
+> read by the LLM updater, open answers are the most reliable (0.99), choice 0.97, yes/no 0.85.
+> With these values `eig` starts with open questions in `max_entropy`'s slot order. The main grid
+> is `fixed`, `random`, `max_entropy`, `entropy_choice`, `eig` × {rule, llm} with template
+> wording, plus `eig` + llm with LLM wording and `eig_mc` + llm at K = 5 (12 arms, 5 replicates,
+> 48 eval personas). `eig_open` stays out: with one open ρ it asked exactly `max_entropy`'s
+> questions in all M3 episodes. `entropy_choice` joins: `eig` no longer lists options, so it is
+> the only arm that tests whether listing them helps. Primary metric: posterior mass on the true
+> value; the others in the `[analysis]` table are secondary. The hypotheses, as directed claims:
+> - H1: `eig` > `fixed` and > `random` on mass on truth at K = 5 and 8, with either updater.
+> - H2: `eig` = `max_entropy` within noise (no Holm-significant difference on mass on truth),
+>   because under the measured ρ they ask nearly the same questions; `entropy_choice` is not
+>   better than `max_entropy`; `eig_mc` is not better than `eig` at K = 5.
+> - H3: the LLM updater > the rule updater on mass on truth for every selector. Its second part
+>   (the gap grows from direct to vague answer styles) is read descriptively from the episodes in
+>   M6, by style, without a test.
+> - H4: across episodes, higher final mass on truth goes with lower regret (Spearman correlation
+>   per arm, descriptive, M6).
+> - Phrasing (Q9): LLM wording changes mass on truth by less than 0.02 (no Holm-significant
+>   difference).
+> The 15 comparisons of H1–H3 and the phrasing ablation are the `[analysis]` table of
+> `experiments/m5_full.toml`; Holm runs per metric over all of them and every budget.
 
 > **Decision Q14 — models per role.** *Chosen:* agent roles (updater, phrasing) on qwen3:32b;
 > simulator and judge on llama3.3:70b, a different family, to limit self-preference. Both run on
@@ -608,7 +655,7 @@ results_summary/ committed tables
 | M2 | LLM layer (client, cache, mock, Ollama), LLM updater, phrasing, LLM simulator | mock suite in CI; smoke run on a real model (dev personas) with 0 transport errors and 0 failed calls; parse failures and leakage reported. Changed 10-22: Ollama is not installed on the development laptop, so the M2 smoke runs as a one-GPU cluster job with qwen3:32b for both model groups (the agent model of Q14, already on the cluster; llama3.3:70b is first tested in M5). `experiments/m2_smoke_ollama.toml` (qwen3:4b) stays as the local option. **Done 10-22:** three smoke jobs, all with 0 errors, 0 parse failures and 0 failed calls; leakage settled after two prompt and text fixes (§9) |
 | M3 | EIG selector + question types (templates, oracle, rule and LLM updaters, mock), recommender, outcome metrics | EIG unit tests (EIG = H for noise-free open questions; EIG ≤ 1 bit for yes/no); the m1 and m2 suites still run; an `eig` arm runs in CI (oracle suite `m3_eig` and mock suite `m3_mock`). **Done 10-22.** Oracle suite, ρ 0.7 / 0.8 / 0.9: `eig` raises mass on truth over `max_entropy` from 0.446 to 0.503 at K = 5 and from 0.570 to 0.644 at K = 8 (regret 0.182 → 0.161 and 0.126 → 0.098; at K = 3 regret is equal). It asks only choice questions: 69 % offer every concrete value of a 3-value slot, i.e. the open question with its options listed, and 31 % offer 3 of the 4 values of a 4-value slot. So in this suite its gain comes from the reliability gap assumed between open and closed questions, which makes the M5 estimate of ρ per type decisive for H2. `eig_open` asks exactly the questions of `max_entropy` in all 720 episodes (one ρ for every slot). The mock suite uses the same ρ table in the agent's model so that closed questions go through the LLM paths |
 | M4 | runner (resume by default), run-health, analysis, figures; CLI `analyze` and `health` | analysis runs on mock output and refuses to write committed tables from it; an interrupted run resumed gives the same bytes as an uninterrupted one; the m1/m2/m3 suites still run in CI. **Done 10-22.** CI also resumes `m3_mock` (every cell skipped), runs `health` and `analyze` on it and checks that `--publish` refuses it. First paired reading of the oracle suite `m3_eig` (48 personas, 5 replicates, Holm over 30 tests per metric): `eig` − `max_entropy` mass on truth +0.031 / +0.057 / +0.073 at K = 3 / 5 / 8 (all p < 0.001 after Holm), log loss lower at K = 5 and 8, violations lower at K = 5 and 8; MAP accuracy and regret do not differ after Holm (regret −0.028 at K = 8, Holm p = 0.07) |
-| M5 | cluster jobs (≤ 4 A40), first test of llama3.3:70b as simulator, frozen backstories, smoke run to measure the call rate and re-measure leakage, ρ per type measured on the dev personas and frozen, Q13 frozen, full run | all cells finished within the §1 time limit; error rate 0; parse failures < 1 % per role (`elicitor health` passes); `elicitor analyze --publish` accepts the run |
+| M5 | cluster jobs (≤ 4 A40), first test of llama3.3:70b as simulator, frozen backstories, smoke run to measure the call rate and re-measure leakage, ρ per type measured on the dev personas and frozen, Q13 frozen, full run | all cells finished within the §1 time limit; error rate 0; parse failures < 1 % per role (`elicitor health` passes); `elicitor analyze --publish` accepts the run **Smoke job 10-22** (4 A40, `m5_smoke`): llama3.3:70b fits one A40 fully (42.6 GiB with 4 slots at 2048 context, loaded in 96 s); backstories 176 s, calibration 982 s, smoke run 1,067 s for 12 arms × 12 dev personas × 1 replicate (408 episodes); 0 parse failures, 0 failed calls, 0 transport errors in every role (simulate 325 requests, update 444, phrase 96, imagine 141; the rest cache hits), `health` OK. Projection for the full run: 20 × the smoke (4 × the personas, 5 replicates) ≈ 5.9 h plus loading, under the 11 h bar, so nothing is cut: 5 replicates, K = 3 / 5 / 8. |
 | M6 | README results, demo, release | fresh-clone test passes on a clean venv |
 | M7 | optional, at most one: second domain, joint belief, or judge study | — |
 
