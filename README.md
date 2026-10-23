@@ -82,10 +82,21 @@ What held and what did not:
 - **H3, the LLM updater beats the keyword updater: not supported on the primary metric.** Mass
   on truth does not differ for any selector. MAP accuracy does, for every selector: +0.04 to +0.08
   at K = 3, +0.06 to +0.10 at K = 5, +0.11 to +0.13 at K = 8 (all Holm p < 0.01). The LLM updater
-  picks the right value more often without putting more probability on it. The breakdown by
-  answer style (does the gap grow for vaguer answers?) is descriptive and not published yet.
-- **H4, a better final belief goes with lower regret:** the per-arm Spearman correlations are
-  not published yet.
+  picks the right value more often without putting more probability on it. Split by answer
+  style (descriptive, 12 personas per style), the null on mass on truth is an average of
+  opposite effects: the LLM updater puts more mass on the truth for direct (+0.01 to +0.04) and
+  rambling answers (+0.01 to +0.06), about the same for vague ones, and less for indifferent ones
+  (−0.03 to −0.09, every CI below zero). So the predicted pattern, a gap that grows from direct to
+  vague answers, does not appear on mass on truth. It does appear on MAP accuracy: at K = 8 the
+  gain is +0.15 to +0.20 for vague and rambling answers, +0.08 to +0.14 for direct ones and about
+  +0.01 for indifferent ones. Tables:
+  [styles.csv](results_summary/m5_full/styles.csv).
+- **H4, a better final belief goes with lower regret: holds, weakly, for mass on truth.** Across
+  the 240 episodes of each arm and budget, the Spearman correlation between final mass on truth
+  and regret is negative in 33 of 34 cases (−0.05 to −0.35; the exception is +0.10). MAP accuracy
+  is not related to regret (−0.19 to +0.25), which fits the LLM updater raising MAP accuracy
+  without lowering regret. Tables:
+  [correlations.csv](results_summary/m5_full/correlations.csv).
 - **Phrasing:** LLM rewording of the questions changes nothing measurable (largest difference
   −0.006 mass on truth, not significant).
 
