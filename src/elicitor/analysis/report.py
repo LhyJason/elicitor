@@ -20,6 +20,8 @@ from typing import Any
 
 import numpy as np
 
+from elicitor.analysis.descriptive import correlation_table, persona_styles, style_table
+from elicitor.analysis.descriptive import markdown as descriptive_markdown
 from elicitor.analysis.stats import BOOTSTRAP_RESAMPLES, bootstrap_mean_ci, holm, paired_test
 from elicitor.episode import CONFIDENT
 from elicitor.experiments.config import Arm
@@ -247,6 +249,7 @@ def _markdown(
     metrics: list[str],
     figures: list[Path],
     out: Path,
+    extra: Iterable[str] = (),  # further sections, before the figures
 ) -> str:
     s = run.state
     lines = [
@@ -296,6 +299,7 @@ def _markdown(
                     f"{r['diff']:+.3f} [{r['ci_low']:+.3f}, {r['ci_high']:+.3f}] | "
                     f"{r['wins']}/{r['ties']}/{r['losses']} | {_p(r['p'])} | {_p(r['p_holm'])} |"
                 )
+    lines += list(extra)
     if figures:
         lines += ["", "## Per-turn curves", ""]
         for path in figures:
@@ -350,12 +354,20 @@ def analyze(
     arms = arm_table(run, metrics, resamples)
     comparisons = comparison_table(run, pairs, metrics, resamples)
     curves = curve_table(run, curve_metrics)
+    # H3 by answer style and H4 (SPEC §13, M6): descriptive, no tests.
+    styles = persona_styles(run, root)
+    style_rows = style_table(run, styles, resamples) if styles else None
+    correlations = correlation_table(run)
 
     written = [
         _write(out / "arms.csv", _csv(arms)),
         _write(out / "comparisons.csv", _csv(comparisons)),
         _write(out / "curves.csv", _csv(curves)),
     ]
+    if style_rows:
+        written.append(_write(out / "styles.csv", _csv(style_rows)))
+    if correlations:
+        written.append(_write(out / "correlations.csv", _csv(correlations)))
     figures: list[Path] = []
     if make_figures:
         from elicitor.analysis.figures import plot_curves
@@ -364,6 +376,7 @@ def analyze(
             rows = [r for r in curves if r["metric"] == metric and r["budget"] == budget]
             path = figures_dir / f"curve_{metric.replace('@', '_at')}_K{budget}.png"
             figures.append(plot_curves(rows, metric, budget, run.arms, path, title=name))
-    md = _markdown(run, arms, comparisons, metrics, figures, out)
+    extra = descriptive_markdown(style_rows, correlations)
+    md = _markdown(run, arms, comparisons, metrics, figures, out, extra)
     written.append(_write(out / "results.md", md))
     return written + figures

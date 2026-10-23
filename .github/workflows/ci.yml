@@ -32,6 +32,9 @@ jobs:
       - run: elicitor run experiments/m5_mock.toml --workers 4
       - run: elicitor health results/m5_mock
       - run: elicitor calibrate experiments/m3_eig.toml
+      - name: demo with scripted answers (no LLM)
+        shell: bash
+        run: printf 'somewhere hot\nthe beach\n\n' | elicitor demo --budget 3
       - name: analysis refuses to publish mock output
         shell: bash
         run: "! elicitor analyze results/m3_mock --publish"

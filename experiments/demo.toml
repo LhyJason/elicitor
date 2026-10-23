@@ -1,0 +1,35 @@
+# Interactive demo (SPEC Q20): `elicitor demo` reads this file by default. You answer the
+# questions in the terminal. With the rule updater no LLM is needed; the rho values are the ones
+# measured in M5 (see m5_full.toml). Flags override the first entry of each list, e.g.
+#   elicitor demo --selector max_entropy --budget 8
+#   elicitor demo --updater llm        # needs Ollama running locally: ollama pull qwen3:4b
+
+name = "demo"
+domain = "travel"
+data_dir = "../data"
+seed = 1
+budgets = [5]
+tau = 0.9
+selectors = ["eig"]
+updaters = ["rule"]
+phrasers = ["tpl"]
+
+[selector.eig]
+rho = { open = 0.99, choice = 0.97, yesno = 0.85 }
+
+[selector.entropy_choice]
+rho = { open = 0.99, choice = 0.97, yesno = 0.85 }
+
+[updater.rule]
+rho = { open = 0.79, choice = 0.83, yesno = 0.64 }
+
+[llm]
+provider = "ollama"
+base_url = "http://127.0.0.1:11434"
+num_ctx = 4096
+think = { agent = false }
+timeout = 300
+
+[llm.models]
+agent = "qwen3:4b"
+user = "qwen3:4b"

@@ -1,7 +1,8 @@
 """Command-line entry point.
 
 Subcommands (run, analyze, health, demo) are added milestone by milestone; see docs/SPEC.md §16.
-M1 added `run` and `make-data`, M4 `analyze` and `health`, M5 `calibrate` and `make-backstories`.
+M1 added `run` and `make-data`, M4 `analyze` and `health`, M5 `calibrate` and `make-backstories`,
+M6 `demo`.
 """
 
 import argparse
@@ -58,6 +59,15 @@ def build_parser() -> argparse.ArgumentParser:
     stories.add_argument(
         "--force", action="store_true", help="overwrite an existing backstories file"
     )
+
+    demo = sub.add_parser("demo", help="answer the agent's questions yourself (SPEC Q20)")
+    demo.add_argument(
+        "config", type=Path, nargs="?", help="experiment TOML file (default: experiments/demo.toml)"
+    )
+    demo.add_argument("--selector", help="question selector (default: the file's first)")
+    demo.add_argument("--updater", help="belief updater, rule or llm (default: the file's first)")
+    demo.add_argument("--phraser", help="question wording, tpl or llm (default: the file's first)")
+    demo.add_argument("--budget", type=int, help="number of questions (default: the file's first)")
 
     data = sub.add_parser("make-data", help="regenerate frozen personas and catalog")
     data.add_argument("domain_dir", type=Path, help="domain folder, e.g. data/travel")
@@ -169,6 +179,35 @@ def cmd_make_backstories(args: argparse.Namespace) -> int:
     return 1 if any(s.flagged for s in stories) else 0
 
 
+def cmd_demo(args: argparse.Namespace) -> int:
+    from elicitor.demo import CACHE, DEFAULT_CONFIG, demo_arm, run_demo
+    from elicitor.experiments.config import load_config
+
+    path = args.config or DEFAULT_CONFIG
+    if not path.exists():
+        print(f"error: {path} not found; run from the repo root or pass a file", file=sys.stderr)
+        return 2
+    config = load_config(path)
+    try:
+        arm = demo_arm(config, args.selector, args.updater, args.phraser)
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    client = None
+    if arm.uses_llm:
+        from elicitor.llm import build_client
+
+        client = build_client(config.llm, config.prompts_dir, CACHE)
+    try:
+        run_demo(config, arm, budget=args.budget, client=client)
+    except (EOFError, KeyboardInterrupt):
+        print()
+    finally:
+        if client is not None:
+            client.close()
+    return 0
+
+
 def cmd_make_data(args: argparse.Namespace) -> int:
     from elicitor.datagen import check_data, write_data
 
@@ -197,5 +236,7 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_calibrate(args)
     if args.command == "make-backstories":
         return cmd_make_backstories(args)
+    if args.command == "demo":
+        return cmd_demo(args)
     parser.print_help()
     return 0
