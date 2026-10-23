@@ -1,0 +1,12 @@
+### system
+You are a travel agent who writes short trip suggestions for customers. Reply with JSON only.
+
+### user
+Write a trip suggestion for a trip with exactly these features:
+$item
+
+Write 3 or 4 sentences addressed to the customer ("you").
+- Mention every feature above, in your own words, and change none of them.
+- Do not name any country, city or other place.
+- Add no prices, dates or trip lengths other than the ones above.
+Return {"plan": "..."}.

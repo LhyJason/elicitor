@@ -1,0 +1,40 @@
+# M7 judge study (SPEC Q10 A, Q13 M7): LLM judges score the items the M5 full run recommended to
+# the 48 eval personas (replicate 0), against their true utility. No dialogue is run. J1-J6 were
+# frozen before any judge call. One job on 4 GPUs (two servers per model), at most 3 h. Submit
+# from the repo root, where results/m5_full is:
+#   cluster/submit.sh cluster/judge.sbatch
+
+name = "m7_judge"
+domain = "travel"
+data_dir = "../data"
+seed = 9000
+
+[judge]
+source = "results/m5_full"
+replicate = 0
+anchors = ["best", "random"]
+presentations = ["list", "plan_agent", "plan_user"]
+judges = ["user", "agent"]  # user model = main judge; agent model for self-preference (J5)
+ordering = [8, 3]  # J2: recommended at K = 8 above recommended at K = 3
+# J3: equal regret in M5, 0.90 fewer constraint violations for eig_mc
+constraints = [["sel=eig_mc,upd=llm,phr=tpl", 5], ["sel=eig,upd=llm,phr=tpl", 5]]
+pairs = [
+    [["sel=eig_mc,upd=llm,phr=tpl", 5], ["sel=eig,upd=llm,phr=tpl", 5]],
+    [["sel=eig,upd=llm,phr=tpl", 8], ["sel=eig,upd=llm,phr=tpl", 3]],
+]
+
+[judge.arms]  # arm -> budgets whose top item is judged
+"sel=eig,upd=rule,phr=tpl" = [3, 5, 8]
+"sel=eig,upd=llm,phr=tpl" = [3, 5, 8]
+"sel=eig_mc,upd=llm,phr=tpl" = [5]
+
+[llm]
+provider = "ollama"
+base_url = "http://127.0.0.1:11434"  # replaced by ELICITOR_SERVERS_AGENT / _USER in the job
+num_ctx = 2048
+think = { agent = false }  # qwen3 thinks unless told not to; llama3.3 has no thinking mode
+timeout = 600
+
+[llm.models]
+agent = "qwen3:32b"
+user = "llama3.3:latest"  # the 70B Q4_K_M, as in M5

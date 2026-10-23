@@ -30,6 +30,7 @@ STATE = "run_state.json"
 LIVE = "live.json"
 CELLS = "cells"
 MERGED = ("episodes.jsonl", "summary.csv", "llm_stats.json")
+JUDGE_PROMPTS = frozenset({"prompts/plan.txt", "prompts/judge.txt", "prompts/pair.txt"})
 
 # [llm] settings that do not change any reply, so they stay out of the fingerprint.
 _LLM_TRANSPORT_KEYS = ("base_url", "timeout", "cache")
@@ -64,8 +65,11 @@ def fingerprint(config: ExperimentConfig, max_personas: int | None) -> str:
     h = hashlib.sha256(json.dumps(settings, sort_keys=True).encode())
     # Every file of the domain (schema, personas, catalog, backstories, prompts). The repo checks
     # them out with LF endings, so the hash is the same on every platform.
+    # The judge study's prompts are skipped: no run reads them (SPEC §14, M7 details).
     domain_dir = config.data_dir / config.domain
     for path in sorted(p for p in domain_dir.rglob("*") if p.is_file()):
+        if path.relative_to(domain_dir).as_posix() in JUDGE_PROMPTS:
+            continue
         h.update(path.relative_to(domain_dir).as_posix().encode() + b"\0")
         h.update(hashlib.sha256(path.read_bytes()).digest())
     return h.hexdigest()

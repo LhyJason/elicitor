@@ -14,7 +14,16 @@ from typing import Any
 from pydantic import BaseModel
 
 from elicitor.answer_model import AnswerModel
-from elicitor.llm.roles import BackstoryReply, PhraseReply, SimulateReply, update_model
+from elicitor.llm.roles import (
+    SCORE_MAX,
+    BackstoryReply,
+    JudgeReply,
+    PairReply,
+    PhraseReply,
+    PlanReply,
+    SimulateReply,
+    update_model,
+)
 from elicitor.questions import noise_free_outcome
 from elicitor.simulator.oracle import render_outcome
 from elicitor.updaters.rule import parse_outcomes
@@ -87,3 +96,22 @@ def mock_backstory(ctx: Mapping[str, Any], rng: random.Random) -> BaseModel:
         backstory=f"You are {ctx['age']} and work as {rng.choice(_JOBS)}. "
         f"In the evenings you enjoy {rng.choice(_HOBBIES)}."
     )
+
+
+# Judge study (SPEC Q10, M7): the mock judges know the true utility, which the judge study puts
+# in the context for them (`utility`, `utility_first`, `utility_second`; not strings, so they
+# never reach a prompt).
+
+
+def mock_plan(ctx: Mapping[str, Any], rng: random.Random) -> BaseModel:
+    return PlanReply(plan="Here is a trip for you: " + "; ".join(ctx["labels"]) + ".")
+
+
+def mock_judge(ctx: Mapping[str, Any], rng: random.Random) -> BaseModel:
+    return JudgeReply(reason="mock", score=round(SCORE_MAX * ctx["utility"]))
+
+
+def mock_pair(ctx: Mapping[str, Any], rng: random.Random) -> BaseModel:
+    first, second = ctx["utility_first"], ctx["utility_second"]
+    choice = "equal" if abs(first - second) < 1e-9 else "first" if first > second else "second"
+    return PairReply(reason="mock", choice=choice)

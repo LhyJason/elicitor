@@ -2,7 +2,7 @@
 
 Subcommands (run, analyze, health, demo) are added milestone by milestone; see docs/SPEC.md §16.
 M1 added `run` and `make-data`, M4 `analyze` and `health`, M5 `calibrate` and `make-backstories`,
-M6 `demo`.
+M6 `demo`, M7 `judge` and `judge-report`.
 """
 
 import argparse
@@ -68,6 +68,22 @@ def build_parser() -> argparse.ArgumentParser:
     demo.add_argument("--updater", help="belief updater, rule or llm (default: the file's first)")
     demo.add_argument("--phraser", help="question wording, tpl or llm (default: the file's first)")
     demo.add_argument("--budget", type=int, help="number of questions (default: the file's first)")
+
+    judge = sub.add_parser("judge", help="LLM judges score a run's recommendations (SPEC Q10)")
+    judge.add_argument("config", type=Path, help="judge TOML file")
+    judge.add_argument("--out", type=Path, help="output directory (default: results/<name>)")
+    judge.add_argument("--source", type=Path, help="source run folder (default: the file's)")
+    judge.add_argument("--workers", type=int, default=1, help="threads making calls (default 1)")
+
+    report = sub.add_parser("judge-report", help="tests and tables of a judge folder")
+    report.add_argument("judge_dir", type=Path, help="folder written by `elicitor judge`")
+    report.add_argument("--out", type=Path, help="table folder (default: <judge_dir>/report)")
+    report.add_argument(
+        "--publish",
+        action="store_true",
+        help="write to results_summary/<name>/ and docs/figures/<name>/ (complete real runs only)",
+    )
+    report.add_argument("--no-figures", action="store_true", help="tables only")
 
     data = sub.add_parser("make-data", help="regenerate frozen personas and catalog")
     data.add_argument("domain_dir", type=Path, help="domain folder, e.g. data/travel")
@@ -208,6 +224,55 @@ def cmd_demo(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_judge(args: argparse.Namespace) -> int:
+    from elicitor.experiments.health import format_roles
+    from elicitor.judge import load_judge_config, run_judge
+    from elicitor.llm import build_client
+
+    try:
+        config = load_judge_config(args.config, source=args.source)
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    out = args.out or Path("results") / config.name
+    out.mkdir(parents=True, exist_ok=True)
+    client = build_client(config.llm, config.prompts_dir, out / "llm_cache.sqlite")
+    try:
+        state = run_judge(config, client, out, workers=args.workers, progress=print)
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    finally:
+        client.close()
+    if state["llm"]:
+        print(format_roles(state["llm"]["roles"]))
+    print(f"wrote {out}")
+    for problem in state["problems"]:
+        print(f"  - {problem}", file=sys.stderr)
+    return 1 if state["problems"] else 0
+
+
+def cmd_judge_report(args: argparse.Namespace) -> int:
+    from elicitor.analysis.judge_report import judge_report
+    from elicitor.analysis.report import RefusedToPublish
+
+    try:
+        written = judge_report(
+            args.judge_dir, out=args.out, publish=args.publish, make_figures=not args.no_figures
+        )
+    except RefusedToPublish as exc:
+        print("refusing to write committed outputs:", file=sys.stderr)
+        for reason in exc.reasons:
+            print(f"  - {reason}", file=sys.stderr)
+        return 2
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    for path in written:
+        print(f"wrote {path}")
+    return 0
+
+
 def cmd_make_data(args: argparse.Namespace) -> int:
     from elicitor.datagen import check_data, write_data
 
@@ -238,5 +303,9 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_make_backstories(args)
     if args.command == "demo":
         return cmd_demo(args)
+    if args.command == "judge":
+        return cmd_judge(args)
+    if args.command == "judge-report":
+        return cmd_judge_report(args)
     parser.print_help()
     return 0

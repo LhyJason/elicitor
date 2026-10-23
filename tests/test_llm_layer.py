@@ -168,6 +168,19 @@ def test_prompts_render_without_leftover_placeholders(roles, schema, persona):
             "style_guide": load_styles(PROMPTS / "styles.toml")["vague"],
             "avoid_words": "beach, city",
         },
+        "plan": {"item": "- climate: cold, wintry weather", "labels": ["cold, wintry weather"]},
+        "judge": {
+            "profile": profile_lines(schema, persona),
+            "item": "- budget: under $100 a day",
+            "utility": 0.5,
+        },
+        "pair": {
+            "profile": profile_lines(schema, persona),
+            "first": "- pace: a packed schedule",
+            "second": "- pace: a relaxed, slow pace",
+            "utility_first": 0.4,
+            "utility_second": 0.6,
+        },
     }
     for name, role in roles.items():
         messages = role.prompt.render(contexts[name])
@@ -267,7 +280,7 @@ def test_build_client_checks_its_table(tmp_path):
     with pytest.raises(ValueError, match="needs a model"):
         build_client({"provider": "ollama"}, PROMPTS, None)
     with pytest.raises(ValueError, match="unknown roles"):
-        build_client({"roles": {"judge": {}}}, PROMPTS, None)
+        build_client({"roles": {"critic": {}}}, PROMPTS, None)
     client = build_client({"cache": False}, PROMPTS, tmp_path / "x.sqlite")
     assert client.cache is None
 

@@ -1,0 +1,17 @@
+### system
+You judge how well a recommended trip fits a traveller's preferences. Reply with JSON only.
+
+### user
+The traveller's preferences:
+$profile
+
+The recommended trip:
+$item
+
+How well does this trip fit the traveller? Judge by these rules:
+- Every preference listed above counts the same.
+- "No particular preference" is met by any trip.
+- For the daily budget and the trip length, a near miss is better than a far miss.
+Give a one-sentence reason, then a score from 0 (fits none of the preferences) to 10 (fits all
+of them).
+Return {"reason": "...", "score": <integer from 0 to 10>}.

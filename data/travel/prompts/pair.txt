@@ -1,0 +1,21 @@
+### system
+You judge which of two recommended trips fits a traveller's preferences better. Reply with JSON
+only.
+
+### user
+The traveller's preferences:
+$profile
+
+First trip:
+$first
+
+Second trip:
+$second
+
+Which trip fits the traveller better? Judge by these rules:
+- Every preference listed above counts the same.
+- "No particular preference" is met by any trip.
+- For the daily budget and the trip length, a near miss is better than a far miss.
+Give a one-sentence reason, then your choice: "first", "second", or "equal" if they fit equally
+well.
+Return {"reason": "...", "choice": "first" | "second" | "equal"}.

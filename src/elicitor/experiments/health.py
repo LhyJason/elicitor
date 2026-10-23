@@ -59,7 +59,8 @@ def format_roles(roles: dict[str, dict[str, Any]]) -> str:
     rows = role_rows(roles)
     if not rows:
         return "no LLM calls"
-    lines = ["role".ljust(10) + "".join(c.rjust(17) for c in _COLUMNS)]
+    width = max(10, *(len(r["role"]) + 1 for r in rows))
+    lines = ["role".ljust(width) + "".join(c.rjust(17) for c in _COLUMNS)]
     for row in rows:
         cells = []
         for c in _COLUMNS:
@@ -67,7 +68,7 @@ def format_roles(roles: dict[str, dict[str, Any]]) -> str:
             cells.append(
                 f"{v:.2%}" if c == "parse_rate" else f"{v:.2f}" if isinstance(v, float) else str(v)
             )
-        lines.append(row["role"].ljust(10) + "".join(x.rjust(17) for x in cells))
+        lines.append(row["role"].ljust(width) + "".join(x.rjust(17) for x in cells))
     return "\n".join(lines)
 
 
@@ -123,14 +124,21 @@ def check_health(run_dir: str | Path, now: float | None = None) -> Health:
         return health
     health.lines.append(f"provider {llm['provider']}, models {llm['models']}")
     health.lines.append(format_roles(llm["roles"]))
-    for row in role_rows(llm["roles"]):
+    health.problems += role_problems(llm["roles"])
+    return health
+
+
+def role_problems(roles: dict[str, dict[str, Any]]) -> list[str]:
+    """The M5 bar per role: no failed call, no transport error, parse failures below 1 %."""
+    problems = []
+    for row in role_rows(roles):
         if row["failed_calls"]:
-            health.problems.append(f"{row['role']}: {row['failed_calls']} failed calls")
+            problems.append(f"{row['role']}: {row['failed_calls']} failed calls")
         if row["transport_errors"]:
-            health.problems.append(f"{row['role']}: {row['transport_errors']} transport errors")
+            problems.append(f"{row['role']}: {row['transport_errors']} transport errors")
         if row["parse_rate"] >= MAX_PARSE_RATE:
-            health.problems.append(
+            problems.append(
                 f"{row['role']}: parse failure rate {row['parse_rate']:.2%}"
                 f" (bar {MAX_PARSE_RATE:.0%})"
             )
-    return health
+    return problems

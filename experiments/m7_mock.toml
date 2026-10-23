@@ -1,0 +1,29 @@
+# M7 mock judge suite: the judge study on the M5 mock suite, with the mock provider (its judges
+# score round(10 u) and pick the item of higher utility). Runs in CI after m5_mock:
+#   elicitor judge experiments/m7_mock.toml --workers 4
+
+name = "m7_mock"
+domain = "travel"
+data_dir = "../data"
+seed = 9000
+
+[judge]
+source = "results/m5_mock"
+replicate = 0
+anchors = ["best", "random"]
+presentations = ["list", "plan_agent", "plan_user"]
+judges = ["user", "agent"]
+ordering = [5, 3]  # m5_mock has no K = 8
+constraints = [["sel=eig_mc,upd=llm,phr=tpl", 5], ["sel=eig,upd=llm,phr=tpl", 5]]
+pairs = [
+    [["sel=eig_mc,upd=llm,phr=tpl", 5], ["sel=eig,upd=llm,phr=tpl", 5]],
+    [["sel=eig,upd=llm,phr=tpl", 5], ["sel=eig,upd=llm,phr=tpl", 3]],
+]
+
+[judge.arms]
+"sel=eig,upd=rule,phr=tpl" = [3, 5]
+"sel=eig,upd=llm,phr=tpl" = [3, 5]
+"sel=eig_mc,upd=llm,phr=tpl" = [5]
+
+[llm]
+provider = "mock"

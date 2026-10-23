@@ -12,6 +12,7 @@ thread's current tally, which `track()` replaces for the length of a task.
 from __future__ import annotations
 
 import contextlib
+import dataclasses
 import json
 import os
 import threading
@@ -120,8 +121,22 @@ class LLMClient:
 
     # ------------------------------------------------------------ calls
 
-    def call(self, role_name: str, context: Mapping[str, Any], seed: int = 0) -> BaseModel:
+    def call(
+        self,
+        role_name: str,
+        context: Mapping[str, Any],
+        seed: int = 0,
+        group: str | None = None,
+    ) -> BaseModel:
         role = self.roles[role_name]
+        stats_name = role_name
+        if group is not None:
+            # The judge study sends one role to both model groups (SPEC §14, M7 details): the
+            # request is routed to that group's servers and counted as `role@group`.
+            if group not in self.models:
+                raise ValueError(f"no model configured for group {group!r}")
+            role = dataclasses.replace(role, group=group)
+            stats_name = f"{role_name}@{group}"
         overrides = self.role_overrides.get(role_name, {})
         temperature = float(overrides.get("temperature", role.temperature))
         max_tokens = int(overrides.get("max_tokens", role.max_tokens))
@@ -129,7 +144,7 @@ class LLMClient:
         output = role.output(context)
         messages = role.prompt.render(context)
         schema = output.model_json_schema(by_alias=True)
-        stats = self.stats[role_name]
+        stats = self.stats.setdefault(stats_name, RoleStats())
         stats.calls += 1
 
         for attempt in range(self.max_attempts):

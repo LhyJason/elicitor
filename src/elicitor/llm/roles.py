@@ -2,7 +2,8 @@
 
 A role is one kind of LLM call: a prompt template, a pydantic output model (which also gives the
 JSON schema sent to the server), sampling settings, the model group that serves it and a mock
-function for the mock provider.
+function for the mock provider. The judge study's `plan` and `judge` run in both groups; the
+caller then names the group per call (SPEC §14, M7 details).
 
 The caller passes a `context` dict. String entries fill the prompt's `$name` placeholders; other
 entries (a `Slot`, a `Persona`) are there for the mock and for building the output model, and
@@ -17,14 +18,15 @@ import string
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, create_model, field_validator
 
 from elicitor.schema import Slot
 
-AGENT = "agent"  # roles played by the agent: update, phrase, imagine
-USER = "user"  # roles played by the simulated user: simulate, backstory (and later the judge)
+AGENT = "agent"  # the agent's roles: update, phrase, imagine
+USER = "user"  # the simulated user's roles: simulate, backstory; the judge study's pair
+GROUPS = (AGENT, USER)
 
 SCORE_MAX = 10
 
@@ -54,6 +56,22 @@ class SimulateReply(Strict):
 
 class BackstoryReply(Strict):
     backstory: str = Field(min_length=20, max_length=600)
+
+
+class PlanReply(Strict):
+    plan: str = Field(min_length=40, max_length=1200)
+
+
+# The reason comes first, so a model that follows the schema's order writes it before the
+# verdict.
+class JudgeReply(Strict):
+    reason: str = Field(max_length=400)
+    score: int = Field(ge=0, le=SCORE_MAX)
+
+
+class PairReply(Strict):
+    reason: str = Field(max_length=400)
+    choice: Literal["first", "second", "equal"]
 
 
 @functools.cache
@@ -137,7 +155,7 @@ class Role:
     max_tokens: int
 
 
-ROLE_NAMES = ("update", "phrase", "simulate", "imagine", "backstory")
+ROLE_NAMES = ("update", "phrase", "simulate", "imagine", "backstory", "plan", "judge", "pair")
 
 
 def build_roles(prompts_dir: str | Path) -> dict[str, Role]:
@@ -189,5 +207,34 @@ def build_roles(prompts_dir: str | Path) -> dict[str, Role]:
             mock=mock.mock_backstory,
             temperature=0.8,
             max_tokens=250,
+        ),
+        # Judge study (SPEC Q10, M7). `plan` and `judge` default to the user group; the judge
+        # study names the group per call.
+        "plan": Role(
+            name="plan",
+            group=USER,
+            prompt=load_prompt(prompts_dir / "plan.txt"),
+            output=lambda ctx: PlanReply,
+            mock=mock.mock_plan,
+            temperature=0.7,
+            max_tokens=300,
+        ),
+        "judge": Role(
+            name="judge",
+            group=USER,
+            prompt=load_prompt(prompts_dir / "judge.txt"),
+            output=lambda ctx: JudgeReply,
+            mock=mock.mock_judge,
+            temperature=0.0,
+            max_tokens=150,
+        ),
+        "pair": Role(
+            name="pair",
+            group=USER,
+            prompt=load_prompt(prompts_dir / "pair.txt"),
+            output=lambda ctx: PairReply,
+            mock=mock.mock_pair,
+            temperature=0.0,
+            max_tokens=150,
         ),
     }
