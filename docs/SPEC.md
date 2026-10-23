@@ -18,7 +18,7 @@ The code is written from this file. A changed decision is recorded here before t
 | Q7 | Question types and EIG | analytic EIG + one small Monte Carlo EIG arm; add choice questions | settled |
 | Q8 | Stopping rule | budget K plus a confidence threshold τ | settled |
 | Q9 | Question phrasing | templates by default, LLM phrasing as one ablation | settled |
-| Q10 | Recommendation target | fixed synthetic catalog (objective regret); LLM judge optional | settled |
+| Q10 | Recommendation target | fixed synthetic catalog (objective regret); LLM judge checked against it (M7) | settled |
 | Q11 | User simulator | LLM simulator for experiments, rule oracle for tests | settled |
 | Q12 | Experiment grid | selector × updater factorial, 5 replicates, phrasing as a separate ablation | settled |
 | Q13 | Hypotheses | frozen in this file before the full run | settled |
@@ -57,6 +57,9 @@ and figures.
   Smoke runs stay under 1 h.
 - If the measured rate (M5 smoke run) projects past 12 h, the grid is cut, in this order: fewer
   replicates (down to 3), drop K = 8, fewer Monte Carlo samples. The time limit is not extended.
+- M7 (the judge study, Q10) runs no new dialogues: a smoke job under 1 h and one judge job of at
+  most 3 h on at most 4 GPUs. If the smoke projects past 3 h, the second judge (self-preference,
+  Q10) is dropped first, then the pairwise test.
 
 ## 2. Terms
 
@@ -373,6 +376,61 @@ Answers a question in character, using only the persona; must not volunteer the 
 > $\mathrm{EU}(i) = \frac{1}{|S|}\sum_s \sum_v b_s(v)\, m_s(i_s, v)$; ties keep catalog order.
 > A belief that is a point mass on the truth therefore ranks a best item first. Hard constraints
 > are not used for ranking; how often the top item breaks one is reported (§12).
+>
+> *A as a judge study (M7).* The question is not "how good are the recommendations" (B answers
+> that) but "does an LLM judge, given everything it needs, agree with the true utility $u$?".
+> The catalog makes this checkable, which a study of free-text plans alone could not. No new
+> dialogues are run: the judge scores the items the M5 full run recommended (each episode keeps
+> its top 10 item ids).
+> - *Sample.* The 48 eval personas, replicate 0 of `m5_full`. For each persona: the top item of
+>   `eig` + rule and `eig` + llm at K = 3, 5 and 8 and of `eig_mc` + llm at K = 5 (under the
+>   measured ρ `eig` asked exactly `max_entropy`'s questions, so these stand for it too), plus
+>   two anchors: the best item (the first item of maximal utility in catalog order, the one
+>   hit@1 counts) and a random item (seeded by persona, never one of maximal utility). A *unit*
+>   is a distinct (persona, item); arms that recommended the same item share its scores. At most
+>   9 units per persona, 432 in all.
+> - *Presentations.* `list`: the item's attributes as their labels, one per line, in schema
+>   order. `plan_agent` and `plan_user`: a trip suggestion of 3–4 sentences written from those
+>   attributes alone (role `plan`, temperature 0.7, seeded by item) by the agent model
+>   (qwen3:32b) or the user model (llama3.3). The plan prompt asks for every attribute and for
+>   no place names and no prices or durations beyond the listed ones; it sees neither the persona
+>   nor the belief, so a plan carries no information the list lacks. Each plan is written once
+>   per item and reused across personas. Its fidelity is read with the rule matcher's keywords
+>   (share of slots whose value it names; share where it names another value), descriptively.
+> - *Judges.* Role `judge`, temperature 0. The prompt holds the persona's profile (every slot's
+>   true value as its label, as the simulator sees it; no backstory, which by design says nothing
+>   about travel, §4), a rubric and one presented item. The rubric states $u$ in words: every
+>   listed preference counts the same, "no particular preference" is met by anything, and for
+>   budget and trip length a near miss is better than a far one. The reply is a one-sentence
+>   reason and an integer score from 0 to 10. The main judge is the user model (llama3.3, Q14);
+>   the agent model (qwen3) judges as well, for the self-preference test. Each unit is scored by
+>   2 judges × 3 presentations = 6 calls, seeded by (persona, item, presentation).
+> - *Pairwise.* Role `pair` (user model, temperature 0, `list` presentation): the profile and
+>   two items; the reply is a one-sentence reason and `first`, `second` or `equal`. Every pair
+>   is asked in both orders. Pairs per persona: `eig_mc` + llm against `eig` + llm at K = 5 (equal
+>   regret in M5, 0.90 fewer constraint violations for `eig_mc`) and `eig` + llm at K = 8 against
+>   K = 3. A pair of two identical items is skipped. At most 192 calls.
+> - *Failures.* A reply that still fails validation after the retries (§14) is a failed
+>   judgement. It is counted per role and in the report, and its unit leaves the tests that need
+>   that score; it never gets a default score.
+> - *Outputs.* `elicitor judge <judge file>` reads the source run's episodes and writes
+>   `results/<name>/plans.jsonl`, `judgments.jsonl` (one line per call: unit, presentation or
+>   pair order, judge, score or choice, reason, failed) and `llm_stats.json`, and exits 1 on the
+>   health criteria of §15. A rerun is free through the reply cache. `elicitor judge-report
+>   <dir> [--publish]` writes `units.csv` (persona, item, which arms and anchors chose it,
+>   utility, the per-slot match scores $m_s$, the six scores), `tests.csv` (the tests of Q13 M7),
+>   `weights.csv`, `pairs.csv`, `results.md` and `score_vs_utility.png` (mean score by utility,
+>   one line per judge × presentation). `--publish` writes to `results_summary/<name>/` and
+>   `docs/figures/<name>/` under the rules of §13: the source run must qualify, and the judge run
+>   must be complete and use no mock provider.
+> - *Mock.* The mock `judge` returns round(10 · u), the mock `pair` picks the item of higher
+>   utility (`equal` on a tie) and the mock `plan` joins the labels into one sentence, so CI runs
+>   `judge` and `judge-report` on a mock suite.
+> - *Cost.* At most 400 plans (200 catalog items × 2 models; only the items in the sample),
+>   2,592 single judgements and 192 pairwise calls: about 3,200 calls before deduplication,
+>   about 1 h at the M5 rate (about 0.84 requests per second over 4 servers). Smoke: the same
+>   file on `m5_smoke` (12 dev personas, at most 108 units), where the prompts are tuned. Judge
+>   job: 4 A40, two servers per model as in M5, time limit 3 h.
 
 ## 11. Episode loop
 
@@ -497,6 +555,34 @@ answer (common random numbers), which tightens the paired comparisons in §13.
 >   difference).
 > The 15 comparisons of H1–H3 and the phrasing ablation are the `[analysis]` table of
 > `experiments/m5_full.toml`; Holm runs per metric over all of them and every budget.
+>
+> **Frozen (M7, 10-23, before any judge call).** Hypotheses of the judge study (Q10). The main
+> judge is the user model with the `list` presentation unless a hypothesis says otherwise. As in
+> §13 the unit of a test is the persona: a persona's scores are averaged within each condition
+> before the paired Wilcoxon signed-rank test (differences rounded to 10 decimals, zeros
+> dropped). J2–J6 are 7 tests in one Holm family; J1 is a confidence-interval claim.
+> - J1 (validity): the Spearman correlation between judge score and true utility over all units
+>   is positive, and its 95 % bootstrap CI (resampling personas, 10 000 resamples, fixed seed)
+>   lies above 0.5.
+> - J2 (ordering): judge scores keep the utility order best item > recommended at K = 8 >
+>   recommended at K = 3 > random item (3 tests, one per adjacent pair; "recommended at K" is the
+>   mean score of the persona's recommended units at that budget).
+> - J3 (constraints): the judge scores `eig_mc` + llm above `eig` + llm at K = 5 although their
+>   regret is equal in M5, i.e. it weighs the two constraint slots more than $u$ does, despite the
+>   rubric. Descriptive companion (`weights.csv`): a least-squares fit of the score on the nine
+>   per-slot match scores $m_s$ over all units, per judge and presentation, against $u$'s equal
+>   weights.
+> - J4 (presentation): a plan scores higher than the list for the same unit (mean of the two
+>   plans minus the list). Descriptive: Spearman with utility for each judge × presentation.
+> - J5 (self-preference): each judge favours its own model's plans, measured per unit as
+>   [qwen(`plan_agent`) − qwen(`plan_user`)] − [llama(`plan_agent`) − llama(`plan_user`)] > 0,
+>   which cancels any difference in plan quality that both judges see.
+> - J6 (position): in the pairwise test the verdict changes with the order in at least 10 % of
+>   pairs, and the share of `first` among the non-`equal` verdicts differs from 1/2 (two-sided
+>   binomial test; direction not predicted). Descriptive: among pairs of different utility, the
+>   share of order-consistent verdicts that pick the item of higher utility.
+> Leniency has no hypothesis; it is reported as the score distribution by utility and the mean
+> score of the random anchors.
 
 > **Decision Q14 — models per role.** *Chosen:* agent roles (updater, phrasing) on qwen3:32b;
 > simulator and judge on llama3.3:70b, a different family, to limit self-preference. Both run on
@@ -553,6 +639,15 @@ One client, providers `ollama` (native API), `openai_compatible` (any local serv
   when two arms ask the same question at the same time they still get the same answer (common
   random numbers, §11), as they would one after the other. Statistics are counted per task (see
   §15) and summed per cell.
+
+**M7 details.**
+- New roles `plan`, `judge` (Q10) and `pair`, prompts in `data/<domain>/prompts/`. `plan` and
+  `judge` run in both model groups, so for them the group is chosen per call instead of fixed
+  by the role; `pair` belongs to the `user` group. The cache key already holds the model, so the
+  same prompt sent to both models is two entries.
+- A judge file is an experiment file with a `[judge]` table: the source run directory, the
+  replicate, the arms and budgets of the sample, the anchors, the presentations, the judge
+  groups and the pairs. `[llm]` is the same as in the source run's file.
 
 > **Decision Q15.** *Chosen* pydantic v2 models for each role's output; the same model produces
 > the JSON schema sent to the server and validates the reply.
@@ -648,7 +743,8 @@ results_summary/ committed tables
 > **Decision Q16 — config and CLI.** *Chosen* TOML experiment files read into dataclasses, one
 > `argparse` CLI with subcommands `run`, `analyze`, `health`, `demo`, plus `make-data`, which
 > regenerates the frozen persona and catalog files from the schema and a seed (`--check` only
-> compares). No Hydra. M5 adds `make-backstories` (§4) and `calibrate` (§7).
+> compares). No Hydra. M5 adds `make-backstories` (§4) and `calibrate` (§7); M7 adds `judge` and
+> `judge-report` (Q10).
 
 > **Decision Q17 — packaging and tooling.** *Chosen* pyproject + setuptools, plain venv/pip,
 > ruff (lint + format), pytest, GitHub Actions running tests and the mock suite on every push.
@@ -671,7 +767,7 @@ results_summary/ committed tables
 | M4 | runner (resume by default), run-health, analysis, figures; CLI `analyze` and `health` | analysis runs on mock output and refuses to write committed tables from it; an interrupted run resumed gives the same bytes as an uninterrupted one; the m1/m2/m3 suites still run in CI. **Done 10-22.** CI also resumes `m3_mock` (every cell skipped), runs `health` and `analyze` on it and checks that `--publish` refuses it. First paired reading of the oracle suite `m3_eig` (48 personas, 5 replicates, Holm over 30 tests per metric): `eig` − `max_entropy` mass on truth +0.031 / +0.057 / +0.073 at K = 3 / 5 / 8 (all p < 0.001 after Holm), log loss lower at K = 5 and 8, violations lower at K = 5 and 8; MAP accuracy and regret do not differ after Holm (regret −0.028 at K = 8, Holm p = 0.07) |
 | M5 | cluster jobs (≤ 4 A40), first test of llama3.3:70b as simulator, frozen backstories, smoke run to measure the call rate and re-measure leakage, ρ per type measured on the dev personas and frozen, Q13 frozen, full run | all cells finished within the §1 time limit; error rate 0; parse failures < 1 % per role (`elicitor health` passes); `elicitor analyze --publish` accepts the run **Smoke job 10-22** (4 A40, `m5_smoke`): llama3.3:70b fits one A40 fully (42.6 GiB with 4 slots at 2048 context, loaded in 96 s); backstories 176 s, calibration 982 s, smoke run 1,067 s for 12 arms × 12 dev personas × 1 replicate (408 episodes); 0 parse failures, 0 failed calls, 0 transport errors in every role (simulate 325 requests, update 444, phrase 96, imagine 141; the rest cache hits), `health` OK. Projection for the full run: 20 × the smoke (4 × the personas, 5 replicates) ≈ 5.9 h plus loading, under the 11 h bar, so nothing is cut: 5 replicates, K = 3 / 5 / 8. **Done 10-23.** Full run (job on 4 A40, `m5_full`, code 84d70e5): 60 / 60 cells, 8,160 episodes in 15,597 s (4.3 h); about 230,000 LLM calls (13,058 requests, the rest cache hits) with 0 parse failures, 0 failed calls, 0 transport errors; `health` OK; `analyze --publish` wrote `results_summary/m5_full/` and `docs/figures/m5_full/`. Against the frozen Q13, on mass on truth (Holm per metric): H1 not supported (`eig` > `fixed` only at K = 5 with the LLM updater, +0.026; equal to `fixed` at K = 8, where both ask the same 8 slots; −0.010 against `random` at K = 8). H2 holds exactly: under the measured ρ `eig` asked `max_entropy`'s questions in every episode, so all metrics are identical; `entropy_choice` is worse at K = 3 and 5 (−0.03); `eig_mc` is better than `eig` at K = 5 (+0.027 mass, −0.90 constraint violations, both Holm p < 0.001), against the frozen prediction, with regret and hit@1 unchanged. H3 not supported on mass on truth (no Holm-significant difference) but holds on MAP accuracy for every selector (+0.04 to +0.13, growing with K, all Holm p < 0.001): the LLM updater picks the right value more often without putting more mass on it. Phrasing: no significant difference (largest −0.006). H3's style breakdown and H4 are read in M6. |
 | M6 | README results, demo, release; the H3 style breakdown and H4 correlations (§13, descriptive tables), published by re-running `analyze --publish` on the M5 run where it lives (no LLM calls; the CSVs and figures M5 published must come out byte-identical, `results.md` only gains the two new sections) | fresh-clone test passes on a clean venv (short path, Windows); `elicitor demo` runs without an LLM; the README states H1–H4 as the run found them. **Done 10-23.** Fresh clone (Windows, short path, clean venv): ruff, 171 tests and every CI command pass, including the demo with scripted answers. Re-publish on the cluster (code 6b4b518, 23 s, no LLM): the 3 CSVs and 9 figures of M5 byte-identical (sha256), `styles.csv` and `correlations.csv` added. H3 by style, on mass on truth (LLM − rule): positive for direct (+0.01 to +0.04) and rambling (+0.01 to +0.06), about zero for vague, negative for indifferent (−0.03 to −0.09, every CI below zero), so the M5 null is an average of opposite effects and the predicted growth from direct to vague does not appear. On MAP accuracy it does: at K = 8, +0.15 to +0.20 for vague and rambling, +0.08 to +0.14 for direct, about +0.01 for indifferent. H4: Spearman(final mass on truth, regret) negative in 33 of 34 arm × budget cells (−0.05 to −0.35; `fixed` + llm at K = 5 is +0.10), so it holds weakly; MAP accuracy is unrelated to regret (−0.19 to +0.25). Correction to the M5 row: the H3 MAP-accuracy differences have Holm p < 0.01 (the largest is 0.004, `random` at K = 3), not all < 0.001 |
-| M7 | optional, at most one: second domain, joint belief, or judge study | — |
+| M7 | optional, at most one: second domain, joint belief, or judge study. *Chosen 10-23: the judge study* (Q10 A, hypotheses J1–J6 frozen in Q13): roles `plan`, `judge`, `pair` with mocks; CLI `judge` and `judge-report`; `cluster/judge.sbatch` (4 A40); smoke on `m5_smoke` (dev personas, prompt tuning), then the judge job on `m5_full` (eval personas, replicate 0); README section | the mock judge runs in CI (`judge` and `judge-report`, `--publish` refused); smoke job under 1 h; judge job within 3 h with 0 failed calls, 0 transport errors and parse failures < 1 % per role, every planned call either scored or counted as failed; `judge-report --publish` accepts it; the M5 outputs are untouched (`analyze` on `m5_full` byte-identical); the README states J1–J6 as found |
 
 ## 18. Results and release
 
