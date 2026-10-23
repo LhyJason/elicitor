@@ -449,6 +449,20 @@ answer (common random numbers), which tightens the paired comparisons in §13.
 >   covers the eval split and was not cut with `--max-personas`; otherwise analysis refuses and
 >   writes nothing. The oracle suites qualify (their noise is known exactly, Q11); mock runs never
 >   do.
+> - *Descriptive tables (M6, for H3 and H4 of Q13; no tests, no Holm).* `analyze` also writes
+>   `styles.csv` and `correlations.csv`, and a section for each in `results.md`.
+>   `styles.csv`: for every selector and phraser that has both a `rule` and an `llm` updater
+>   arm, every budget and every answer style, the persona means (replicates averaged first) of
+>   the rule arm, the LLM arm and their difference LLM − rule, with a 95 % bootstrap CI over the
+>   personas of that style (12 per style in the eval split). Metrics: mass on truth (the primary
+>   metric) and MAP accuracy (where H3 held in M5). The style of each persona is read from the
+>   domain's persona file, `data/<domain>/personas.jsonl` under the analysis root, because the
+>   episodes do not store it; the table is skipped when that file does not cover the run's
+>   personas. `correlations.csv`: for every arm and budget, the Spearman correlation over
+>   episodes (persona × replicate) between final regret and final mass on truth (primary) and
+>   final MAP accuracy (secondary), with the number of episodes and the share with zero regret.
+>   Episodes of one persona are not independent, so no p-value is reported. H4 holds for an arm
+>   when its correlation with mass on truth is negative.
 
 > **Decision Q13 — hypotheses** (draft until M5; frozen below):
 > H1 `eig` > `fixed` and `random` on posterior mass on truth at budget K.
@@ -656,7 +670,7 @@ results_summary/ committed tables
 | M3 | EIG selector + question types (templates, oracle, rule and LLM updaters, mock), recommender, outcome metrics | EIG unit tests (EIG = H for noise-free open questions; EIG ≤ 1 bit for yes/no); the m1 and m2 suites still run; an `eig` arm runs in CI (oracle suite `m3_eig` and mock suite `m3_mock`). **Done 10-22.** Oracle suite, ρ 0.7 / 0.8 / 0.9: `eig` raises mass on truth over `max_entropy` from 0.446 to 0.503 at K = 5 and from 0.570 to 0.644 at K = 8 (regret 0.182 → 0.161 and 0.126 → 0.098; at K = 3 regret is equal). It asks only choice questions: 69 % offer every concrete value of a 3-value slot, i.e. the open question with its options listed, and 31 % offer 3 of the 4 values of a 4-value slot. So in this suite its gain comes from the reliability gap assumed between open and closed questions, which makes the M5 estimate of ρ per type decisive for H2. `eig_open` asks exactly the questions of `max_entropy` in all 720 episodes (one ρ for every slot). The mock suite uses the same ρ table in the agent's model so that closed questions go through the LLM paths |
 | M4 | runner (resume by default), run-health, analysis, figures; CLI `analyze` and `health` | analysis runs on mock output and refuses to write committed tables from it; an interrupted run resumed gives the same bytes as an uninterrupted one; the m1/m2/m3 suites still run in CI. **Done 10-22.** CI also resumes `m3_mock` (every cell skipped), runs `health` and `analyze` on it and checks that `--publish` refuses it. First paired reading of the oracle suite `m3_eig` (48 personas, 5 replicates, Holm over 30 tests per metric): `eig` − `max_entropy` mass on truth +0.031 / +0.057 / +0.073 at K = 3 / 5 / 8 (all p < 0.001 after Holm), log loss lower at K = 5 and 8, violations lower at K = 5 and 8; MAP accuracy and regret do not differ after Holm (regret −0.028 at K = 8, Holm p = 0.07) |
 | M5 | cluster jobs (≤ 4 A40), first test of llama3.3:70b as simulator, frozen backstories, smoke run to measure the call rate and re-measure leakage, ρ per type measured on the dev personas and frozen, Q13 frozen, full run | all cells finished within the §1 time limit; error rate 0; parse failures < 1 % per role (`elicitor health` passes); `elicitor analyze --publish` accepts the run **Smoke job 10-22** (4 A40, `m5_smoke`): llama3.3:70b fits one A40 fully (42.6 GiB with 4 slots at 2048 context, loaded in 96 s); backstories 176 s, calibration 982 s, smoke run 1,067 s for 12 arms × 12 dev personas × 1 replicate (408 episodes); 0 parse failures, 0 failed calls, 0 transport errors in every role (simulate 325 requests, update 444, phrase 96, imagine 141; the rest cache hits), `health` OK. Projection for the full run: 20 × the smoke (4 × the personas, 5 replicates) ≈ 5.9 h plus loading, under the 11 h bar, so nothing is cut: 5 replicates, K = 3 / 5 / 8. **Done 10-23.** Full run (job on 4 A40, `m5_full`, code 84d70e5): 60 / 60 cells, 8,160 episodes in 15,597 s (4.3 h); about 230,000 LLM calls (13,058 requests, the rest cache hits) with 0 parse failures, 0 failed calls, 0 transport errors; `health` OK; `analyze --publish` wrote `results_summary/m5_full/` and `docs/figures/m5_full/`. Against the frozen Q13, on mass on truth (Holm per metric): H1 not supported (`eig` > `fixed` only at K = 5 with the LLM updater, +0.026; equal to `fixed` at K = 8, where both ask the same 8 slots; −0.010 against `random` at K = 8). H2 holds exactly: under the measured ρ `eig` asked `max_entropy`'s questions in every episode, so all metrics are identical; `entropy_choice` is worse at K = 3 and 5 (−0.03); `eig_mc` is better than `eig` at K = 5 (+0.027 mass, −0.90 constraint violations, both Holm p < 0.001), against the frozen prediction, with regret and hit@1 unchanged. H3 not supported on mass on truth (no Holm-significant difference) but holds on MAP accuracy for every selector (+0.04 to +0.13, growing with K, all Holm p < 0.001): the LLM updater picks the right value more often without putting more mass on it. Phrasing: no significant difference (largest −0.006). H3's style breakdown and H4 are read in M6. |
-| M6 | README results, demo, release | fresh-clone test passes on a clean venv |
+| M6 | README results, demo, release; the H3 style breakdown and H4 correlations (§13, descriptive tables), published by re-running `analyze --publish` on the M5 run where it lives (no LLM calls; the CSVs and figures M5 published must come out byte-identical, `results.md` only gains the two new sections) | fresh-clone test passes on a clean venv (short path, Windows); `elicitor demo` runs without an LLM; the README states H1–H4 as the run found them |
 | M7 | optional, at most one: second domain, joint belief, or judge study | — |
 
 ## 18. Results and release
@@ -666,3 +680,16 @@ results_summary/ committed tables
 
 > **Decision Q20 — demo.** *Chosen* a `demo` subcommand: terminal chat where a human answers,
 > showing the belief bars after each turn. Useful in interviews.
+>
+> *In detail (M6).* `elicitor demo [config] [--selector S] [--updater U] [--phraser P]
+> [--budget K]`. The config is an experiment file; by default `experiments/demo.toml`, which
+> uses `eig` with the rule updater and template wording at K = 5 and the ρ measured in M5, so it
+> needs no LLM. The demo takes the first entry of `selectors`, `updaters`, `phrasers` and
+> `budgets` unless a flag overrides it, the `[selector.*]` and `[updater.*]` parameters, τ, and
+> `[llm]` when the arm uses an LLM (reply cache `results/demo_cache.sqlite`). Each turn prints
+> the question, reads one line (an empty line or `quit` ends the dialogue early), updates the
+> belief and prints one bar per slot (most probable value and its probability, the slot just
+> asked marked), plus every value of the slot just asked. It stops at the budget or when every
+> slot reaches τ, like an episode (§11), then prints the top 3 catalog items with their
+> attributes and expected utility. There is no ground truth, so no metrics. `eig_mc` is not
+> offered (it needs a simulated user).
