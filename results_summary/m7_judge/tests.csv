@@ -1,0 +1,9 @@
+hypothesis,test,a,b,n,mean_a,mean_b,diff,ci_low,ci_high,wins,ties,losses,statistic,p,p_holm,holds
+J1,"Spearman(score, utility), user judge, list",score,utility,256,0.870871,,,0.827421,0.905506,,,,,nan,,True
+J2,ordering,best item,recommended at K = 8,48,6.77083,6.55208,0.21875,0.0416667,0.40625,13,30,5,36.5,0.0303281,0.15164,False
+J2,ordering,recommended at K = 8,recommended at K = 3,48,6.55208,4.44792,2.10417,1.625,2.60417,42,6,0,0,1.459e-08,1.0213e-07,True
+J2,ordering,recommended at K = 3,random item,48,4.44792,2.41667,2.03125,1.54141,2.54167,39,7,2,22.5,1.03189e-07,6.19135e-07,True
+J3,constraints,"sel=eig_mc,upd=llm,phr=tpl@K5","sel=eig,upd=llm,phr=tpl@K5",48,5.79167,5.35417,0.4375,-0.104167,0.979167,18,15,15,191.5,0.107192,0.219461,False
+J4,presentation,plans (mean of two),list,48,4.89318,4.77655,0.116629,0.00319754,0.230955,27,3,18,357,0.0698616,0.219461,False
+J5,self-preference,agent judge: own − other plan,user judge: same plans,48,0.115699,0.0250579,0.0906415,-0.0640274,0.241415,24,8,16,320,0.225816,0.225816,False
+J6,position,first,second,170,0.423529,0.284091,,,,72,,98,,0.0548652,0.219461,False

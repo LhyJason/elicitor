@@ -1,0 +1,3 @@
+pair,a,b,personas,both_orders,order_changed,order_changed_share,first,second,equal,a_won,b_won,decided_with_utility_gap,agrees_with_utility
+0,"sel=eig_mc,upd=llm,phr=tpl@K5","sel=eig,upd=llm,phr=tpl@K5",44,44,15,0.340909,35,50,3,21,8,27,0.925926
+1,"sel=eig,upd=llm,phr=tpl@K8","sel=eig,upd=llm,phr=tpl@K3",44,44,10,0.227273,37,48,3,30,4,33,0.939394

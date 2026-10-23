@@ -103,6 +103,45 @@ What held and what did not:
 Limits: the users are simulated by an LLM that knows its whole profile, there is one domain, the
 belief treats slots as independent, and regret is measured on a synthetic catalog.
 
+### An LLM judge checked against the true utility
+
+Because the catalog's utility is known, it can test what is usually used when it is not: an LLM
+judge. The judge study runs no new dialogues. For each of the 48 evaluation personas (replicate 0
+of the full run) it takes the items the agent recommended, the best catalog item and one random
+item, 256 distinct (persona, item) units. Each unit is scored 0 to 10 by two judges, llama3.3 70B
+(the simulator's model, the main judge) and qwen3 32B (the agent's model), in three presentations:
+the item's attribute list, and a short trip plan written by either model. Two pairs of arms are
+also compared head to head, in both orders. That is about 2,000 LLM calls, 42 minutes on 4 A40
+GPUs, with no failed calls and no parse failures. The hypotheses were frozen before any judge
+call (SPEC Q13); the tests are as above. Complete tables:
+[results_summary/m7_judge/results.md](results_summary/m7_judge/results.md).
+
+- **J1, the judge tracks utility: holds.** Spearman correlation 0.87 [0.83, 0.91] for the main
+  judge on the list, and 0.74 to 0.82 for the other judge and presentation combinations.
+- **J2, the judge keeps the utility order: holds for two of three steps.** An item recommended at
+  K = 8 scores 2.1 points above one recommended at K = 3, which scores 2.0 above a random item
+  (both Holm p < 0.001). The best catalog item scores only 0.22 above the K = 8 recommendation
+  (Holm p = 0.15).
+- **J3, the judge prefers `eig_mc`'s items for their constraints: not supported.** `eig_mc` + llm
+  scores 0.44 above `eig` + llm at K = 5 (CI −0.10 to +0.98, Holm p = 0.22). Head to head, judges
+  that gave the same verdict in both orders picked `eig_mc`'s item 21 times to 8. The judges do
+  weigh the slots unevenly although the rubric says every preference counts the same: a
+  least-squares fit gives budget a weight of 2.0 to 2.8 and food 0.4 to 0.7, against 1.11 for each
+  slot in the utility.
+- **J4, a written plan scores higher than the list: not supported** (+0.12, Holm p = 0.22). Plans
+  make the main judge slightly less accurate: Spearman 0.79 and 0.82 against 0.87 for the list.
+- **J5, each judge favours its own model's plans: not supported** (+0.09, p = 0.23).
+- **J6, verdicts depend on the order: half holds.** The verdict changed when the two items were
+  swapped in 28 % of pairs (the frozen bar was 10 %), but the share of decisive verdicts for the
+  item shown first, 0.42, does not differ from 1/2 after Holm (p = 0.055 before, 0.22 after), so
+  J6 as frozen fails. When the verdict did not change with the order, it picked the item of higher
+  utility in 93 % and 94 % of pairs.
+- **Leniency:** the main judge is strict: a random item averages 2.4 and the best item 6.8 out of
+  10. On the list, the agent's model gives items of utility below 0.6 and the random items 0.6 to
+  0.8 points more.
+
+![Mean judge score against true utility](docs/figures/m7_judge/score_vs_utility.png)
+
 ## Quick start
 
 ```bash
@@ -138,6 +177,8 @@ A run into an existing folder resumes; `--fresh` starts over (the LLM reply cach
 the agent, llama3.3 70B for the simulated user), runs the grid with resume, checks run health and
 publishes the analysis. `elicitor calibrate` measures the answer noise per question type and
 `elicitor make-backstories` writes the persona backstories; both results are frozen in the repo.
+`cluster/submit.sh cluster/judge.sbatch experiments/m7_judge.toml` runs the judge study on the
+finished run and publishes its tables.
 
 ## Development
 
