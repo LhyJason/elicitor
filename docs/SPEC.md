@@ -644,10 +644,21 @@ One client, providers `ollama` (native API), `openai_compatible` (any local serv
 - New roles `plan`, `judge` (Q10) and `pair`, prompts in `data/<domain>/prompts/`. `plan` and
   `judge` run in both model groups, so for them the group is chosen per call instead of fixed
   by the role; `pair` belongs to the `user` group. The cache key already holds the model, so the
-  same prompt sent to both models is two entries.
+  same prompt sent to both models is two entries. The call statistics of `plan` and `judge`
+  are kept per group (`judge@user`, `judge@agent`, …), so a parse problem shows which model has
+  it.
+- The run fingerprint (§15, M4) skips these three prompt files: no run reads them, and the M5
+  runs keep their fingerprint.
 - A judge file is an experiment file with a `[judge]` table: the source run directory, the
   replicate, the arms and budgets of the sample, the anchors, the presentations, the judge
-  groups and the pairs. `[llm]` is the same as in the source run's file.
+  groups, the pairs, and which sources J2 and J3 compare. `[llm]` is the same as in the source
+  run's file. The source path is relative to the working directory, like a run folder given to
+  `analyze`; `--source` overrides it.
+- `judge` also writes `units.jsonl` (each unit with its sources, utility, violations and
+  per-slot match scores, so the report needs no domain files) and, last, `judge_state.json`
+  (name, version, provider, models, the judge file's text and the source run's name,
+  fingerprint, split, persona cut, provider and whether it was complete). A judge folder
+  without `judge_state.json` is incomplete.
 
 > **Decision Q15.** *Chosen* pydantic v2 models for each role's output; the same model produces
 > the JSON schema sent to the server and validates the reply.
