@@ -43,3 +43,12 @@ jobs:
       - name: the judge report refuses to publish mock output
         shell: bash
         run: "! elicitor judge-report results/m7_mock --publish"
+      - name: the wheel runs the demo outside the repo (SPEC Q21)
+        shell: bash
+        run: |
+          python -m pip wheel . --no-deps -w dist
+          python -m pip install --no-deps --target wheel-site dist/elicitor-*.whl
+          export PYTHONPATH="$PWD/wheel-site"
+          cd "$RUNNER_TEMP"
+          python -c "from elicitor import resources; assert resources.root().name == 'bundled'"
+          printf 'somewhere hot\nthe beach\n\n' | python -m elicitor demo --budget 3

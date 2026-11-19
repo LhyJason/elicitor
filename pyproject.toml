@@ -27,6 +27,31 @@ elicitor = "elicitor.cli:main"
 [tool.setuptools.dynamic]
 version = { attr = "elicitor.__version__" }
 
+# The travel domain and the demo file go into the wheel under elicitor/bundled/, from where they
+# are in the repo (SPEC Q21; `elicitor.resources` finds them). The package list is explicit
+# because of that mapping: a new subpackage has to be added here.
+[tool.setuptools]
+packages = [
+    "elicitor",
+    "elicitor.analysis",
+    "elicitor.experiments",
+    "elicitor.llm",
+    "elicitor.selectors",
+    "elicitor.simulator",
+    "elicitor.updaters",
+    "elicitor.bundled.data",
+    "elicitor.bundled.experiments",
+]
+
+[tool.setuptools.package-dir]
+"" = "src"
+"elicitor.bundled.data" = "data"
+"elicitor.bundled.experiments" = "experiments"
+
+[tool.setuptools.package-data]
+"elicitor.bundled.data" = ["*/*", "*/prompts/*"]
+"elicitor.bundled.experiments" = ["demo.toml"]
+
 [tool.ruff]
 line-length = 100
 target-version = "py312"

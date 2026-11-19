@@ -152,8 +152,9 @@ elicitor run experiments/m2_mock.toml       # every LLM code path on the mock ba
 elicitor run experiments/m3_eig.toml        # EIG vs the baselines, rule-based user, no LLM
 ```
 
-Run these from the repo root. The demo asks up to five questions chosen by `eig`, shows the
-belief after each answer and ends with the three best catalog items.
+Run the experiments from the repo root; the demo runs from any folder. It asks up to five
+questions chosen by `eig`, shows the belief after each answer and ends with the three best
+catalog items.
 `elicitor demo --selector max_entropy --budget 8` changes the agent; with
 [Ollama](https://ollama.com) running locally and `ollama pull qwen3:4b`,
 `elicitor demo --updater llm` uses the LLM updater.
@@ -168,6 +169,52 @@ elicitor analyze results/m3_eig      # tables, paired tests and curves in result
 A run into an existing folder resumes; `--fresh` starts over (the LLM reply cache is kept).
 `analyze --publish` writes the committed tables in `results_summary/` and figures in
 `docs/figures/`, and refuses runs that are incomplete, cut short or made with the mock backend.
+
+## Use it in your own code
+
+A `Session` is one dialogue that your code drives: it hands you the next question, you bring
+back the user's answer.
+
+```python
+from elicitor import Session
+
+session = Session.from_config()  # travel domain, `eig` + rule updater, no LLM
+while (question := session.next_question()) is not None:
+    session.observe(input(question + "\n> "))
+for rec in session.recommend(3):
+    print(rec.item.id, round(rec.expected_utility, 2), rec.item.attrs)
+```
+
+`session.belief` is the current distribution per slot, `session.turns` the dialogue so far and
+`session.stop_reason` why it ended (budget, confident or exhausted). `Session.from_config(path)`
+takes any experiment file; `selector=`, `updater=`, `phraser=` and `budget=` override it. For
+your own domain, pass a schema and a catalog:
+
+```python
+from elicitor import Session, load_catalog, load_schema
+
+session = Session(
+    load_schema("my_domain/schema.toml"),
+    catalog=load_catalog("my_domain/catalog.jsonl"),
+    selector="max_entropy",
+    budget=8,
+)
+```
+
+The LLM updater needs a client built from an `[llm]` table and the domain's prompt files:
+
+```python
+from elicitor import Session
+from elicitor.experiments.config import load_config
+from elicitor.llm import build_client
+
+config = load_config("experiments/demo.toml")
+client = build_client(config.llm, config.prompts_dir, "llm_cache.sqlite")
+session = Session.from_config(config, updater="llm", client=client)
+```
+
+The travel domain's schema, catalog and prompts ship with the package. The prompts are written
+for travel; a new domain needs its own `schema.toml` and prompt files (see `data/travel/`).
 
 ## Running the full experiment
 
