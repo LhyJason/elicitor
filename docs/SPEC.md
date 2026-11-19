@@ -29,6 +29,7 @@ The code is written from this file. A changed decision is recorded here before t
 | Q18 | License | MIT | settled |
 | Q19 | Results in the repo | summary tables + figures committed; raw runs as a release asset | settled |
 | Q20 | Live demo | terminal chat where a human answers the questions | settled |
+| Q21 | Use from other code | a `Session` class driven by the caller; the travel domain ships in the wheel | settled |
 
 **Also fixed:** Python 3.12. No paid LLM APIs: every role runs on Ollama (local or on a Slurm GPU
 node) or on a deterministic mock. English README with results. Sole author.
@@ -742,7 +743,7 @@ src/<pkg>/
   llm/        (client.py, providers.py, cache.py, roles.py, mock.py)
   experiments/ (config.py, runner.py, store.py, health.py)
   analysis/    (stats.py, report.py, figures.py)
-  cli.py
+  cli.py  session.py  resources.py   (M8, Q21)
 data/<domain>/   schema.toml  personas.jsonl  catalog.jsonl  prompts/
 experiments/     *.toml
 cluster/         slurm scripts, local.env.example
@@ -779,6 +780,7 @@ results_summary/ committed tables
 | M5 | cluster jobs (≤ 4 A40), first test of llama3.3:70b as simulator, frozen backstories, smoke run to measure the call rate and re-measure leakage, ρ per type measured on the dev personas and frozen, Q13 frozen, full run | all cells finished within the §1 time limit; error rate 0; parse failures < 1 % per role (`elicitor health` passes); `elicitor analyze --publish` accepts the run **Smoke job 10-22** (4 A40, `m5_smoke`): llama3.3:70b fits one A40 fully (42.6 GiB with 4 slots at 2048 context, loaded in 96 s); backstories 176 s, calibration 982 s, smoke run 1,067 s for 12 arms × 12 dev personas × 1 replicate (408 episodes); 0 parse failures, 0 failed calls, 0 transport errors in every role (simulate 325 requests, update 444, phrase 96, imagine 141; the rest cache hits), `health` OK. Projection for the full run: 20 × the smoke (4 × the personas, 5 replicates) ≈ 5.9 h plus loading, under the 11 h bar, so nothing is cut: 5 replicates, K = 3 / 5 / 8. **Done 10-23.** Full run (job on 4 A40, `m5_full`, code 84d70e5): 60 / 60 cells, 8,160 episodes in 15,597 s (4.3 h); about 230,000 LLM calls (13,058 requests, the rest cache hits) with 0 parse failures, 0 failed calls, 0 transport errors; `health` OK; `analyze --publish` wrote `results_summary/m5_full/` and `docs/figures/m5_full/`. Against the frozen Q13, on mass on truth (Holm per metric): H1 not supported (`eig` > `fixed` only at K = 5 with the LLM updater, +0.026; equal to `fixed` at K = 8, where both ask the same 8 slots; −0.010 against `random` at K = 8). H2 holds exactly: under the measured ρ `eig` asked `max_entropy`'s questions in every episode, so all metrics are identical; `entropy_choice` is worse at K = 3 and 5 (−0.03); `eig_mc` is better than `eig` at K = 5 (+0.027 mass, −0.90 constraint violations, both Holm p < 0.001), against the frozen prediction, with regret and hit@1 unchanged. H3 not supported on mass on truth (no Holm-significant difference) but holds on MAP accuracy for every selector (+0.04 to +0.13, growing with K, all Holm p < 0.001): the LLM updater picks the right value more often without putting more mass on it. Phrasing: no significant difference (largest −0.006). H3's style breakdown and H4 are read in M6. |
 | M6 | README results, demo, release; the H3 style breakdown and H4 correlations (§13, descriptive tables), published by re-running `analyze --publish` on the M5 run where it lives (no LLM calls; the CSVs and figures M5 published must come out byte-identical, `results.md` only gains the two new sections) | fresh-clone test passes on a clean venv (short path, Windows); `elicitor demo` runs without an LLM; the README states H1–H4 as the run found them. **Done 10-23.** Fresh clone (Windows, short path, clean venv): ruff, 171 tests and every CI command pass, including the demo with scripted answers. Re-publish on the cluster (code 6b4b518, 23 s, no LLM): the 3 CSVs and 9 figures of M5 byte-identical (sha256), `styles.csv` and `correlations.csv` added. H3 by style, on mass on truth (LLM − rule): positive for direct (+0.01 to +0.04) and rambling (+0.01 to +0.06), about zero for vague, negative for indifferent (−0.03 to −0.09, every CI below zero), so the M5 null is an average of opposite effects and the predicted growth from direct to vague does not appear. On MAP accuracy it does: at K = 8, +0.15 to +0.20 for vague and rambling, +0.08 to +0.14 for direct, about +0.01 for indifferent. H4: Spearman(final mass on truth, regret) negative in 33 of 34 arm × budget cells (−0.05 to −0.35; `fixed` + llm at K = 5 is +0.10), so it holds weakly; MAP accuracy is unrelated to regret (−0.19 to +0.25). Correction to the M5 row: the H3 MAP-accuracy differences have Holm p < 0.01 (the largest is 0.004, `random` at K = 3), not all < 0.001 |
 | M7 | optional, at most one: second domain, joint belief, or judge study. *Chosen 10-23: the judge study* (Q10 A, hypotheses J1–J6 frozen in Q13): roles `plan`, `judge`, `pair` with mocks; CLI `judge` and `judge-report`; `cluster/judge.sbatch` (4 A40); smoke on `m5_smoke` (dev personas, prompt tuning), then the judge job on `m5_full` (eval personas, replicate 0); README section | the mock judge runs in CI (`judge` and `judge-report`, `--publish` refused); smoke job under 1 h; judge job within 3 h with 0 failed calls, 0 transport errors and parse failures < 1 % per role, every planned call either scored or counted as failed; `judge-report --publish` accepts it; the M5 outputs are untouched (`analyze` on `m5_full` byte-identical); the README states J1–J6 as found. **Done 10-23.** Smoke job (`m7_judge_smoke`, 12 dev personas, 65 units): 718 s, 0 parse failures, 0 failed calls, 0 transport errors in every role; prompts kept as written. Judge job (4 A40, `m7_judge`, code 479726d): 256 units from 48 eval personas, 270 plans, 1,536 scores and 176 pairwise verdicts in 2,515 s with 0 parse failures, 0 failed calls, 0 transport errors; `judge-report --publish` wrote `results_summary/m7_judge/` and `docs/figures/m7_judge/`. `analyze --publish` on `m5_full` re-run on the cluster (23 s): no committed file changed. Against the frozen Q13: J1 holds (Spearman 0.871 [0.827, 0.906]; 0.74 to 0.82 for the other judge × presentation cells). J2 holds for K = 8 > K = 3 (+2.10) and K = 3 > random (+2.03), both Holm p < 0.001, not for best > K = 8 (+0.22, Holm p 0.15). J3 not supported (+0.44 [−0.10, +0.98], Holm p 0.22); head to head the order-consistent verdicts favour `eig_mc` 21 to 8, and the implied weights put budget at 2.0 to 2.8 and food at 0.4 to 0.7 against 1.11. J4 not supported (+0.12, Holm p 0.22); plans lower the main judge's Spearman to 0.79 and 0.82. J5 not supported (+0.09, p 0.23). J6 fails as frozen: the verdict changed with the order in 28 % of pairs (bar 10 %), but the share of `first` among decisive verdicts, 0.42, is not different from 1/2 (p 0.055, Holm 0.22); order-consistent verdicts on pairs of different utility pick the better item in 93 % and 94 % |
+| M8 | use from other code (Q21): `Session` and `elicitor.resources`; the demo rebuilt on the session; the travel domain and the demo file in the wheel; README section; no change to `data/`, the prompts, `run_episode` or the dependencies | the tests of M0–M7 pass unchanged; a session fed the oracle's answers matches the episode turn by turn; the demo prints what it printed before; a wheel installed with no dependencies runs `Session` and `elicitor demo` from a folder outside the repo; every CI command passes on a fresh clone. **Done 11-19 on Windows; the Linux CI job has not run yet.** 198 tests (15 new). Old against new demo on scripted answers: 450 transcripts with the rule updater (6 selectors, 5 budgets, 3 values of τ, 5 answer scripts) and 6 with the LLM updater and LLM phrasing on the mock backend, all identical. Wheel in a clean venv with `--no-deps`: the 13 files of `data/travel/` and `demo.toml` are byte-identical to the repo's (sha256), and the demo runs from another folder. Fresh clone with an editable install in a clean venv: ruff, pytest and every CI command pass; CI gains a step that builds the wheel and runs the demo outside the repo |
 
 ## 18. Results and release
 
@@ -800,3 +802,36 @@ results_summary/ committed tables
 > slot reaches τ, like an episode (§11), then prints the top 3 catalog items with their
 > attributes and expected utility. There is no ground truth, so no metrics. `eig_mc` is not
 > offered (it needs a simulated user).
+
+> **Decision Q21 — use from other code (M8).** Until M7 the only way to put the agent in front
+> of a person was the `demo` subcommand, and `run_episode` needs a persona with ground truth
+> and a simulator. Options: (A) leave it there; (B) a `Session` class the caller drives, one
+> question at a time; (C) rebuild `run_episode` on such a class as well. *Chosen* B. Not C: the
+> episode loop produced the published runs and stays as it is; a test checks instead that a
+> session fed the oracle's answers asks the same questions and reaches the same beliefs as the
+> episode.
+>
+> *In detail.* `Session(schema, selector=, updater=, phraser=, catalog=, budget=, tau=, seed=,
+> client=)` takes component names as in an experiment file, or objects with the methods of the
+> `Selector`, `Updater` and `Phraser` protocols. `next_question()` returns the wording of the
+> next question, or None when the dialogue is over, with `stop_reason` set as in an episode
+> (§11): budget first, then τ, then a selector with nothing left. An unanswered question is
+> returned again and not counted. `observe(answer)` runs the updater and returns the `Turn`
+> (no metrics: there is no ground truth); `recommend(k)` ranks the catalog under the current
+> belief. `Session.from_config(file)` reads the domain, seed, τ and component settings of an
+> experiment file; with no file it reads the demo file. The demo is now a session with the
+> label `demo`, which keeps its random streams, so it asks and prints what it did before.
+> `from elicitor import Session` loads none of numpy, scipy, matplotlib, pydantic or httpx.
+>
+> *Files in the wheel.* `data/travel/` and `experiments/demo.toml` are installed under
+> `elicitor/bundled/`, laid out as in the repo so the demo file's relative `data_dir` still
+> resolves; `elicitor.resources` returns that folder, or the repo root in a checkout. The
+> files are mapped in `pyproject.toml`, not moved: the run fingerprint (§15) hashes every file
+> of `data/<domain>/`, and Elicitor-Distill reads the same paths. `elicitor demo` with no file
+> uses `experiments/demo.toml` of the working directory when it exists, else the installed one.
+>
+> *Left out, on purpose.* The domain files are unchanged, so the `update` prompt and its
+> no-preference note still speak of a traveller, and a new domain still needs its own
+> `schema.toml` and all eight prompt files. Wording that works for any domain changes what the
+> model reads and has to be checked on a real model first. The dependencies of Q17 are
+> unchanged too: `analyze` still works after a plain install.

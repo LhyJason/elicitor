@@ -62,7 +62,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     demo = sub.add_parser("demo", help="answer the agent's questions yourself (SPEC Q20)")
     demo.add_argument(
-        "config", type=Path, nargs="?", help="experiment TOML file (default: experiments/demo.toml)"
+        "config",
+        type=Path,
+        nargs="?",
+        help="experiment TOML file (default: experiments/demo.toml, else the packaged one)",
     )
     demo.add_argument("--selector", help="question selector (default: the file's first)")
     demo.add_argument("--updater", help="belief updater, rule or llm (default: the file's first)")
@@ -200,8 +203,13 @@ def cmd_demo(args: argparse.Namespace) -> int:
     from elicitor.experiments.config import load_config
 
     path = args.config or DEFAULT_CONFIG
+    if args.config is None and not path.exists():
+        # Outside a checkout: the demo file that ships with the package (SPEC Q21).
+        from elicitor import resources
+
+        path = resources.demo_config()
     if not path.exists():
-        print(f"error: {path} not found; run from the repo root or pass a file", file=sys.stderr)
+        print(f"error: {path} not found", file=sys.stderr)
         return 2
     config = load_config(path)
     try:
